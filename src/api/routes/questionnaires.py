@@ -1,8 +1,9 @@
 """
 Questionnaire API — backed by SQLite database + questionnaire engine.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from src.api.middleware.auth import require_auth
 from src.db.database import (
     fetch_suppliers, fetch_supplier, fetch_coverage_stats,
     fetch_questionnaire_responses,
@@ -15,14 +16,15 @@ router = APIRouter()
 
 
 @router.get("/suppliers")
-def list_suppliers():
-    suppliers = fetch_suppliers()
+def list_suppliers(user: dict = Depends(require_auth)):
+    org_id = user["org_id"]
+    suppliers = fetch_suppliers(org_id=org_id)
     return {"suppliers": suppliers, "total": len(suppliers)}
 
 
 @router.get("/questionnaire/{qnr_id}")
-def get_questionnaire(qnr_id: str):
-    """Get a questionnaire with responses. For now, returns the demo questionnaire."""
+def get_questionnaire(qnr_id: str, user: dict = Depends(require_auth)):
+    """Get a questionnaire with responses."""
     return {
         "id": "qnr_2025_q1_hmm",
         "buyer": "H&M",
@@ -34,8 +36,8 @@ def get_questionnaire(qnr_id: str):
         "status": "partially_responded",
         "questions": [
             {"id": 1, "number": "1", "text": "Annual electricity consumption (kWh)", "response_type": "number", "unit": "kWh", "required": True, "answered": True, "answer": "4,820,000", "confidence": "HIGH", "submitted_at": "2025-01-18T14:22:00Z"},
-            {"id": 2, "number": "2", "text": "Annual water withdrawal (m³)", "response_type": "number", "unit": "m³", "required": True, "answered": True, "answer": "12,400", "confidence": "HIGH", "submitted_at": "2025-01-18T14:22:00Z"},
-            {"id": 3, "number": "3", "text": "Do you have renewable energy installed?", "response_type": "yes_no", "unit": None, "required": True, "answered": True, "answer": "Yes — 850 kW rooftop solar", "confidence": "HIGH", "submitted_at": "2025-01-18T14:23:00Z"},
+            {"id": 2, "number": "2", "text": "Annual water withdrawal (m3)", "response_type": "number", "unit": "m3", "required": True, "answered": True, "answer": "12,400", "confidence": "HIGH", "submitted_at": "2025-01-18T14:22:00Z"},
+            {"id": 3, "number": "3", "text": "Do you have renewable energy installed?", "response_type": "yes_no", "unit": None, "required": True, "answered": True, "answer": "Yes - 850 kW rooftop solar", "confidence": "HIGH", "submitted_at": "2025-01-18T14:23:00Z"},
             {"id": 4, "number": "4", "text": "Annual spend on raw cotton ($)", "response_type": "number", "unit": "$", "required": True, "answered": False, "answer": None, "confidence": None, "submitted_at": None},
             {"id": 5, "number": "5", "text": "Waste recycling rate (%)", "response_type": "number", "unit": "%", "required": False, "answered": False, "answer": None, "confidence": None, "submitted_at": None},
         ],
@@ -44,7 +46,8 @@ def get_questionnaire(qnr_id: str):
 
 
 @router.get("/whatsapp-preview/{supplier_id}")
-def whatsapp_preview(supplier_id: str):
+def whatsapp_preview(supplier_id: str, user: dict = Depends(require_auth)):
+    org_id = user["org_id"]
     supplier = fetch_supplier(supplier_id)
     name = supplier["name"] if supplier else "Unknown Supplier"
     return {
@@ -73,9 +76,10 @@ Questions? Reply to this message.
 
 
 @router.get("/coverage")
-def coverage_stats():
-    stats = fetch_coverage_stats()
-    suppliers = fetch_suppliers()
+def coverage_stats(user: dict = Depends(require_auth)):
+    org_id = user["org_id"]
+    stats = fetch_coverage_stats(org_id=org_id)
+    suppliers = fetch_suppliers(org_id=org_id)
     pending = [s for s in suppliers if s.get("questionnaire_status") == "pending"]
     return {
         "coverage_rate": stats["coverage_pct"],
@@ -91,8 +95,9 @@ def coverage_stats():
 
 
 @router.get("/coverage-stats")
-def coverage_stats_v2():
-    stats = fetch_coverage_stats()
+def coverage_stats_v2(user: dict = Depends(require_auth)):
+    org_id = user["org_id"]
+    stats = fetch_coverage_stats(org_id=org_id)
     return {
         "total_coverage": stats["spend_coverage_pct"],
         "previous_coverage": 64.0,
@@ -102,7 +107,7 @@ def coverage_stats_v2():
 
 
 @router.get("/tiers")
-def list_tiers():
+def list_tiers(user: dict = Depends(require_auth)):
     """List all 4 questionnaire tiers from the questionnaire engine."""
     tiers = get_all_tiers()
     return {
@@ -119,7 +124,7 @@ def list_tiers():
 
 
 @router.get("/tiers/{tier}")
-def get_tier(tier: int):
+def get_tier(tier: int, user: dict = Depends(require_auth)):
     """Get questions for a specific tier from the questionnaire engine."""
     questions = get_tier_questions(tier)
     if not questions:
@@ -143,7 +148,7 @@ def get_tier(tier: int):
 
 
 @router.get("/whatsapp-template/{tier}")
-def get_whatsapp_template(tier: int, supplier_id: str = "sup_001"):
+def get_whatsapp_template(tier: int, supplier_id: str = "sup_001", user: dict = Depends(require_auth)):
     """Generate WhatsApp message template for a tier + supplier."""
     questions = get_tier_questions(tier)
     if not questions:
