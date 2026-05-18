@@ -3,11 +3,11 @@ requires = ["setuptools>=65.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "my-kailash-project"  # TODO: Replace with your project name
-version = "0.1.0"
-description = "A Kailash SDK project"  # TODO: Replace with your project description
+name = "esg-scrm"
+version = "0.2.0"
+description = "ESG Supply Chain Risk Management Platform"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"}  # TODO: Replace with your info
+    {name = "ESG SCRM Team"}
 ]
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,23 +21,18 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    # Kailash SDK — all standard deps included in base install
-    # Pins track PyPI-resolvable versions per rules/deployment.md
-    # (bumping to unreleased versions breaks downstream uv sync).
-    "kailash>=2.21.0",
-    "kailash-mcp>=0.2.14",
-    "kailash-nexus>=2.6.3",
-    "kailash-dataflow>=2.9.7",
-    "kailash-kaizen>=2.21.0",
-    "kailash-pact>=0.12.0",
-    # kailash-trust removed in 3.5.15 — yanked from PyPI ("not required as
-    # kailash already exports it in production"). Functionality is in `kailash`.
-    "kailash-ml>=1.7.4",
-    "kaizen-agents>=0.9.7",
+    # Web framework
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "pydantic>=2.0.0",
+    "pydantic[email]>=2.0.0",
+    # HTTP client (SAP B1 connector, WhatsApp API)
+    "httpx>=0.25.0",
+    # MQTT (smart meter ingestion)
+    "paho-mqtt>=1.6.0",
     # Utilities
-    "rich>=13.0.0",
     "python-dotenv>=1.0.0",
-    "structlog>=23.1.0",
+    "fpdf2>=2.7.0",
 ]
 
 [project.optional-dependencies]
@@ -67,9 +62,7 @@ dev = [
 ]
 
 [project.urls]
-# TODO: Replace with your project URLs
-# "Homepage" = "https://github.com/your-org/your-project"
-# "Bug Tracker" = "https://github.com/your-org/your-project/issues"
+"Homepage" = "https://github.com/kshitijv2025/esg-scrm"
 
 [tool.setuptools.packages.find]
 where = ["."]

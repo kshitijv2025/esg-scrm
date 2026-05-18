@@ -67,3 +67,14 @@ secrets/
 **/scripts/data/
 **/scripts/outputs/
 **/scripts/*.log
+
+# Database files (generated at runtime)
+*.db
+*.db-wal
+*.db-shm
+
+# Node modules
+node_modules/
+
+# Frontend build artifacts
+apps/web/dist/

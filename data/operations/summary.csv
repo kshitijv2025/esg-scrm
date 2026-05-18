@@ -1,0 +1,7 @@
+cluster,value,unit,confidence,source,period,recorded_at
+energy_kwh,2847320,kWh,HIGH,SAP Business One — Utility Invoices,January 2025,2025-01-31T23:59:00Z
+emissions_tco2,892.4,tCO2e,HIGH,Calculated — energy × grid factor,January 2025,2025-01-31T23:59:00Z
+water_m3,18430,m³,HIGH,SAP Business One — Municipal Water Bills,January 2025,2025-01-31T23:59:00Z
+scope3_category1,4281.7,tCO2e,MEDIUM,Supplier questionnaires + spend-based fallback,Q4 2024,2025-01-15T12:00:00Z
+diesel_consumed,49.3,tCO2e,HIGH,Manual entry — diesel generator consumption log,Q4 2024,2025-01-15T12:00:00Z
+scope3_category6,37.0,tCO2e,LOW,Manual calculation — travel expense claims × GHG factors,Q4 2024,2025-01-15T12:00:00Z
