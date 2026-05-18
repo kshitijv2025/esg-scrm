@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 
 from src.api.middleware.auth import require_auth
 from src.api.routes import dashboard, evidence, frameworks, questionnaires, suppliers, reports, risk, scope3
-from src.api.routes import auth
+from src.api.routes import auth, emission_factors, alerts, audit, upload, templates, reports_pdf, whatsapp, ml
 from src.db.database import get_connection
 from src.db.seed import seed
 
@@ -48,6 +48,17 @@ async def lifespan(app: FastAPI):
     conn.close()
     if count == 0:
         seed()
+        from src.db.seed_emission_factors import seed_emission_factors
+        from src.db.seed_alert_thresholds import seed_alert_thresholds
+        seed_emission_factors()
+        seed_alert_thresholds()
+        try:
+            from src.db.seed_framework_mappings import seed_framework_mappings
+            seed_framework_mappings()
+        except ImportError:
+            pass
+        from src.db.seed_templates import seed_templates
+        seed_templates()
 
     factory_id = os.environ.get("MQTT_FACTORY_ID", "factory_bd_001")
 
@@ -96,6 +107,14 @@ app.include_router(suppliers.router, prefix="/api/suppliers", dependencies=[Depe
 app.include_router(reports.router, prefix="/api/reports", dependencies=[Depends(require_auth)])
 app.include_router(risk.router, prefix="/api/risk", dependencies=[Depends(require_auth)])
 app.include_router(scope3.router, prefix="/api/scope3", dependencies=[Depends(require_auth)])
+app.include_router(emission_factors.router, prefix="/api/emission-factors", dependencies=[Depends(require_auth)])
+app.include_router(alerts.router, prefix="/api/alerts", dependencies=[Depends(require_auth)])
+app.include_router(audit.router, prefix="/api/audit", dependencies=[Depends(require_auth)])
+app.include_router(upload.router, prefix="/api/upload", dependencies=[Depends(require_auth)])
+app.include_router(templates.router, prefix="/api/templates", dependencies=[Depends(require_auth)])
+app.include_router(reports_pdf.router, prefix="/api/reports", dependencies=[Depends(require_auth)])
+app.include_router(whatsapp.router, prefix="/api/whatsapp", dependencies=[Depends(require_auth)])
+app.include_router(ml.router, prefix="/api/ml", dependencies=[Depends(require_auth)])
 app.include_router(auth.router, prefix="/api/auth")
 
 from src.realtime.alerts import ws_alerts_endpoint
@@ -104,27 +123,30 @@ app.websocket("/ws/alerts")(ws_alerts_endpoint)
 
 @app.get("/api/health")
 def health():
-    conn = get_connection()
-    metrics_count = conn.execute("SELECT COUNT(*) as cnt FROM metrics").fetchone()["cnt"]
-    suppliers_count = conn.execute("SELECT COUNT(*) as cnt FROM suppliers").fetchone()["cnt"]
-    conn.close()
+    from src.connectors.sap_b1_adapter import SAPBusinessOneAdapter
+    erp_status = SAPBusinessOneAdapter().health_check()
+
     return {
         "status": "ok",
         "version": "0.2.0",
-        "metrics": metrics_count,
-        "suppliers": suppliers_count,
+        "erp": erp_status,
     }
 
 
-@app.get("/api/org")
-def org_info():
+@app.get("/api/org", dependencies=[Depends(require_auth)])
+def org_info(user: dict = Depends(require_auth)):
+    conn = get_connection()
+    org = conn.execute(
+        "SELECT id, name, industry FROM organizations WHERE id = ?",
+        (user["org_id"],),
+    ).fetchone()
+    conn.close()
+
+    if not org:
+        return {"id": user["org_id"], "name": "Unknown", "industry": ""}
+
     return {
-        "id": "org_bd_001",
-        "name": "Bangladesh Export Textiles Ltd.",
-        "type": "mid_market",
-        "employee_count": 3200,
-        "industry": "Garment manufacturing",
-        "primary_buyer": "H&M",
-        "hmm_annual_revenue_usd": 42_000_000,
-        "connected_since": "2024-09-15",
+        "id": org["id"],
+        "name": org["name"],
+        "industry": org.get("industry", ""),
     }

@@ -1,16 +1,43 @@
 """Authentication API routes — register, login, refresh, profile."""
+import re
+import time
 import uuid
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, validator
 
 from src.auth.jwt import create_token, decode_token
 from src.auth.password import hash_password, verify_password
 from src.db.database import get_connection
 
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# In-memory rate limiter — sliding window per client IP (bounded)
+# ---------------------------------------------------------------------------
+_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT_MAX = 5
+RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_MAX_IPS = 10_000  # bound to prevent unbounded growth
+
+
+def _check_rate_limit(ip: str) -> bool:
+    """Return True if the request is allowed, False if rate-limited."""
+    now = time.time()
+    cutoff = now - RATE_LIMIT_WINDOW
+    _rate_limit_store[ip] = [t for t in _rate_limit_store[ip] if t > cutoff]
+    if len(_rate_limit_store[ip]) >= RATE_LIMIT_MAX:
+        return False
+    _rate_limit_store[ip].append(now)
+    # Evict stale IPs when store exceeds max size
+    if len(_rate_limit_store) > RATE_LIMIT_MAX_IPS:
+        stale = [k for k, v in _rate_limit_store.items() if not v]
+        for k in stale:
+            del _rate_limit_store[k]
+    return True
 
 
 class RegisterRequest(BaseModel):
@@ -19,6 +46,26 @@ class RegisterRequest(BaseModel):
     full_name: str
     org_name: Optional[str] = None
 
+    @validator("password")
+    def _validate_password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError(
+                "Password must be at least 8 characters long"
+            )
+        if not re.search(r"[A-Z]", v):
+            raise ValueError(
+                "Password must contain at least one uppercase letter"
+            )
+        if not re.search(r"[a-z]", v):
+            raise ValueError(
+                "Password must contain at least one lowercase letter"
+            )
+        if not re.search(r"\d", v):
+            raise ValueError(
+                "Password must contain at least one digit"
+            )
+        return v
+
 
 class LoginRequest(BaseModel):
     email: str
@@ -26,14 +73,17 @@ class LoginRequest(BaseModel):
 
 
 @router.post("/register")
-def register(body: RegisterRequest):
+def register(body: RegisterRequest, request: Request):
     """Register a new user and organization."""
+    if not _check_rate_limit(request.client.host):
+        raise HTTPException(429, "Too many requests. Try again later.")
+
     conn = get_connection()
 
     existing = conn.execute("SELECT id FROM users WHERE email = ?", (body.email,)).fetchone()
     if existing:
         conn.close()
-        raise HTTPException(409, "Email already registered")
+        raise HTTPException(409, "Registration failed. Please try again.")
 
     org_id = f"org_{uuid.uuid4().hex[:12]}"
     org_name = body.org_name or f"{body.full_name}'s Organization"
@@ -68,8 +118,11 @@ def register(body: RegisterRequest):
 
 
 @router.post("/login")
-def login(body: LoginRequest):
+def login(body: LoginRequest, request: Request):
     """Authenticate user and return JWT token."""
+    if not _check_rate_limit(request.client.host):
+        raise HTTPException(429, "Too many requests. Try again later.")
+
     conn = get_connection()
     user = conn.execute(
         "SELECT id, org_id, email, password_hash, full_name, role, is_active FROM users WHERE email = ?",

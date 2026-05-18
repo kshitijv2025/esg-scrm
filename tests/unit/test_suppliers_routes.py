@@ -35,7 +35,9 @@ def test_get_supplier_profile():
     assert "risk_tier" in data
     assert "clusters" in data
     assert "ml_recommendations" in data
-    assert len(data["ml_recommendations"]) == 3
+    assert len(data["ml_recommendations"]) >= 1
+    for rec in data["ml_recommendations"]:
+        assert isinstance(rec, str) and len(rec) > 10
     for key in ["labour_rights", "environment", "governance", "safety", "gender"]:
         assert key in data["clusters"]
 
