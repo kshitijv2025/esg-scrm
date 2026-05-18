@@ -2,6 +2,7 @@
 Real-time risk detector — monitors metrics against thresholds,
 creates risk flags, and pushes alerts via the AlertBus.
 """
+import os
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any
@@ -9,7 +10,7 @@ from typing import Any
 from src.db.database import DB_PATH, get_connection
 from src.realtime.alerts import push_new_flag
 
-THRESHOLDS: dict[str, dict[str, Any]] = {
+DEFAULT_THRESHOLDS: dict[str, dict[str, Any]] = {
     "energy_kwh": {"max": 3500000, "severity": "WARNING", "text": "Energy consumption exceeds threshold"},
     "water_m3": {"max": 20000, "severity": "WARNING", "text": "Water withdrawal exceeds threshold"},
     "diesel_consumed": {"max": 100, "severity": "CRITICAL", "text": "Diesel usage exceeds threshold"},
@@ -17,18 +18,39 @@ THRESHOLDS: dict[str, dict[str, Any]] = {
     "scope3_category6": {"max": 10000, "severity": "INFO", "text": "Scope 3 Cat 6 emissions elevated"},
 }
 
-# Cooldown in hours — after a flag is created for a cluster, do not re-alert
-# within this window even if the value still exceeds the threshold.
-COOLDOWN_HOURS = 24
+COOLDOWN_HOURS = int(os.environ.get("RISK_COOLDOWN_HOURS", "24"))
+
+# Backward-compatible alias used by tests
+THRESHOLDS = DEFAULT_THRESHOLDS
+
+
+def _load_thresholds() -> dict[str, dict[str, Any]]:
+    """Load thresholds from env vars, falling back to defaults.
+
+    Override any cluster via RISK_THRESHOLD_<CLUSTER_NAME> (uppercased).
+    Example: RISK_THRESHOLD_ENERGY_KWH=4000000
+    """
+    thresholds: dict[str, dict[str, Any]] = {}
+    for cluster, default in DEFAULT_THRESHOLDS.items():
+        env_key = f"RISK_THRESHOLD_{cluster.upper()}"
+        env_val = os.environ.get(env_key)
+        if env_val is not None:
+            try:
+                thresholds[cluster] = {**default, "max": float(env_val)}
+            except ValueError:
+                thresholds[cluster] = default
+        else:
+            thresholds[cluster] = default
+    return thresholds
 
 
 def check_latest_metrics(factory_id: str = "factory_bd_001") -> list[dict[str, Any]]:
     """Check latest metrics against thresholds. Returns list of new flags created.
 
     Dedup: skips alerting if a flag for the same cluster was created within
-    COOLDOWN_HOURS, regardless of acknowledgement status. This prevents the
-    detector from flooding the database on every 60-second ETL cycle.
+    COOLDOWN_HOURS, regardless of acknowledgement status.
     """
+    thresholds = _load_thresholds()
     conn = get_connection()
 
     try:
@@ -47,7 +69,7 @@ def check_latest_metrics(factory_id: str = "factory_bd_001") -> list[dict[str, A
         for row in latest:
             cluster = row["cluster"]
             value = row["value"]
-            threshold = THRESHOLDS.get(cluster)
+            threshold = thresholds.get(cluster)
             if not threshold:
                 continue
             if value > threshold["max"]:

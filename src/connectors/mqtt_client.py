@@ -1,32 +1,24 @@
 """
 MQTT Consumer — factory smart meter data ingestion.
 Subscribes to factory/{factory_id}/meter/{meter_id} topics.
-Batches writes to SQLite every 60 seconds.
+Batches writes to SQLite every batch_interval seconds.
 """
+from __future__ import annotations
+
 import json
+import logging
 import sqlite3
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
-try:
-    import paho.mqtt.client as mqtt
-except ImportError:
-    mqtt = None  # Demo mode — MQTT not installed
+import paho.mqtt.client as mqtt
 
+from src.db.database import DB_PATH
 from src.evidence.hash_chain import compute_hash
 
-SCHEMA_PATH = Path(__file__).parent.parent / "db" / "schema.sql"
-DB_PATH = Path(__file__).parent.parent / "db" / "esg_scrm.db"
-
-
-def _init_db() -> None:
-    if not DB_PATH.exists():
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(DB_PATH)
-        conn.executescript(SCHEMA_PATH.read_text())
-        conn.close()
+logger = logging.getLogger(__name__)
 
 
 def _get_prev_hash(cluster: str) -> str | None:
@@ -64,7 +56,8 @@ def _insert_metric(
         """INSERT INTO evidence_chain
            (metric_id, cluster, hash, prev_hash, value, computed_at, source_system)
            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (metric_id, cluster, the_hash, prev_hash, value, datetime.utcnow().isoformat() + "Z", "mqtt"),
+        (metric_id, cluster, the_hash, prev_hash, value,
+         datetime.now(timezone.utc).isoformat(), "mqtt"),
     )
     conn.commit()
     conn.close()
@@ -74,27 +67,49 @@ def _insert_metric(
 class SmartMeterConsumer:
     """
     MQTT consumer for factory smart meter data.
-    In demo mode (no paho-mqtt), logs incoming payloads instead.
+
+    Connects to the broker specified by environment variables:
+      MQTT_BROKER_HOST (default: localhost)
+      MQTT_BROKER_PORT (default: 1883)
+      MQTT_FACTORY_ID  (default: factory_bd_001)
     """
 
-    def __init__(self, factory_id: str = "factory_bd_001", batch_interval: int = 60):
-        self.factory_id = factory_id
+    def __init__(
+        self,
+        factory_id: Optional[str] = None,
+        broker_host: Optional[str] = None,
+        broker_port: Optional[int] = None,
+        batch_interval: int = 60,
+    ):
+        import os
+        self.factory_id = factory_id or os.environ.get("MQTT_FACTORY_ID", "factory_bd_001")
+        self.broker_host = broker_host or os.environ.get("MQTT_BROKER_HOST", "localhost")
+        self.broker_port = broker_port or int(os.environ.get("MQTT_BROKER_PORT", "1883"))
         self.batch_interval = batch_interval
         self._batch: list[dict[str, Any]] = []
         self._last_flush = time.time()
-        _init_db()
+        self._client: mqtt.Client | None = None
+
+    def on_connect(self, client, userdata, flags, rc, properties=None) -> None:
+        if rc == 0:
+            topic = f"factory/{self.factory_id}/meter/#"
+            client.subscribe(topic)
+            logger.info("mqtt.connected broker=%s:%d topic=%s", self.broker_host, self.broker_port, topic)
+        else:
+            logger.error("mqtt.connect_failed rc=%d broker=%s:%d", rc, self.broker_host, self.broker_port)
 
     def on_message(self, client, userdata, msg) -> None:
         try:
             payload = json.loads(msg.payload.decode())
         except (json.JSONDecodeError, UnicodeDecodeError):
+            logger.warning("mqtt.bad_payload topic=%s", msg.topic)
             return
 
         topic_parts = msg.topic.split("/")
         if len(topic_parts) < 4:
             return
-        cluster = topic_parts[3] if len(topic_parts) >= 4 else "unknown"
-        meter_id = topic_parts[4] if len(topic_parts) >= 5 else "unknown"
+        meter_id = topic_parts[3] if len(topic_parts) >= 4 else "unknown"
+        cluster = topic_parts[4] if len(topic_parts) >= 5 else "unknown"
 
         self._batch.append({
             "factory_id": self.factory_id,
@@ -105,7 +120,7 @@ class SmartMeterConsumer:
             "confidence": "MEDIUM",
             "source": f"MQTT:{meter_id}",
             "period": payload.get("period", "unknown"),
-            "recorded_at": payload.get("timestamp", datetime.utcnow().isoformat() + "Z"),
+            "recorded_at": payload.get("timestamp", datetime.now(timezone.utc).isoformat() + "Z"),
         })
 
         if time.time() - self._last_flush >= self.batch_interval:
@@ -114,6 +129,7 @@ class SmartMeterConsumer:
     def _flush(self) -> None:
         if not self._batch:
             return
+        count = len(self._batch)
         for record in self._batch:
             _insert_metric(
                 record["factory_id"],
@@ -125,28 +141,35 @@ class SmartMeterConsumer:
                 record["period"],
                 record["recorded_at"],
             )
+        logger.info("mqtt.flushed records=%d factory=%s", count, self.factory_id)
         self._batch.clear()
         self._last_flush = time.time()
 
     def start(self) -> None:
-        if mqtt is None:
-            print("[mqtt] Demo mode — paho-mqtt not installed, no real MQTT connection")
-            return
-        client = mqtt.Client()
-        client.on_message = self.on_message
-        client.connect("localhost", 1883, 60)
-        client.subscribe(f"factory/{self.factory_id}/meter/#")
-        client.loop_start()
+        """Connect to MQTT broker and start the network loop."""
+        self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        self._client.on_connect = self.on_connect
+        self._client.on_message = self.on_message
+        try:
+            self._client.connect(self.broker_host, self.broker_port, 60)
+            self._client.loop_start()
+            logger.info("mqtt.starting broker=%s:%d factory=%s", self.broker_host, self.broker_port, self.factory_id)
+        except Exception as e:
+            logger.error("mqtt.connection_error broker=%s:%d error=%s", self.broker_host, self.broker_port, e)
+            raise
 
     def stop(self) -> None:
+        """Flush pending batch and disconnect."""
         self._flush()
-        if mqtt is not None:
-            mqtt.Client().loop_stop()
+        if self._client is not None:
+            self._client.loop_stop()
+            self._client.disconnect()
+            self._client = None
+            logger.info("mqtt.stopped factory=%s", self.factory_id)
 
 
 def get_current_metrics(factory_id: str = "factory_bd_001") -> list[dict]:
     """Return the latest metric per cluster for the factory."""
-    _init_db()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(

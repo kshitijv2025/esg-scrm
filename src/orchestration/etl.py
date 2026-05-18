@@ -1,28 +1,44 @@
 """
-ETL Pipeline — orchestrates: data sources → SQLite → compute → API.
+ETL Pipeline — orchestrates: data sources -> SQLite -> risk detection -> alerts.
 Runs every 60 seconds as a background loop.
-Uses centralized database manager from src.db.database.
+MQTT consumer runs continuously alongside the ETL cycle.
 """
+from __future__ import annotations
+
 import asyncio
 import sqlite3
-import time
+import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 from src.connectors.mqtt_client import SmartMeterConsumer, get_current_metrics
 from src.connectors.sap_b1_adapter import SAPBusinessOneAdapter
 from src.db.database import get_connection, DB_PATH
 from src.evidence.hash_chain import compute_hash
 
+logger = logging.getLogger(__name__)
 
-async def run_mqtt_ingestion(factory_id: str = "factory_bd_001") -> None:
-    """Run MQTT consumer in demo mode (no real broker needed)."""
-    consumer = SmartMeterConsumer(factory_id=factory_id, batch_interval=60)
-    await asyncio.sleep(0.1)
+_mqtt_consumer: Optional[SmartMeterConsumer] = None
+
+
+def start_mqtt_consumer(factory_id: Optional[str] = None) -> SmartMeterConsumer:
+    """Create and start the MQTT consumer. Call once at app startup."""
+    global _mqtt_consumer
+    _mqtt_consumer = SmartMeterConsumer(factory_id=factory_id)
+    _mqtt_consumer.start()
+    return _mqtt_consumer
+
+
+def stop_mqtt_consumer() -> None:
+    """Stop the MQTT consumer. Call at app shutdown."""
+    global _mqtt_consumer
+    if _mqtt_consumer is not None:
+        _mqtt_consumer.stop()
+        _mqtt_consumer = None
 
 
 async def run_sap_ingestion(factory_id: str = "factory_bd_001") -> None:
-    """Pull data from SAP B1 mock adapter and write to metrics table.
+    """Pull data from SAP B1 adapter and write to metrics table.
 
     Skips records already present (dedup by cluster + recorded_at) so the
     ETL loop does not grow the metrics table with identical rows on every cycle.
@@ -85,6 +101,7 @@ async def run_sap_ingestion(factory_id: str = "factory_bd_001") -> None:
 
         if inserted > 0:
             conn.commit()
+            logger.info("etl.sap_ingested records=%d factory=%s", inserted, factory_id)
     finally:
         conn.close()
 
@@ -94,11 +111,10 @@ async def etl_loop(interval: int = 60, factory_id: str = "factory_bd_001") -> No
     from src.realtime.risk_detector import detect_and_alert
     while True:
         try:
-            await run_mqtt_ingestion(factory_id)
             await run_sap_ingestion(factory_id)
             await detect_and_alert(factory_id)
         except Exception as e:
-            print(f"[etl] Error during ingestion cycle: {e}")
+            logger.error("etl.cycle_error error=%s", e)
         await asyncio.sleep(interval)
 
 

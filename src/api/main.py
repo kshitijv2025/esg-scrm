@@ -3,8 +3,11 @@ ESG+SCRM Platform API — FastAPI backend backed by SQLite.
 """
 import asyncio
 import json
+import logging
+import os
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -14,6 +17,15 @@ from src.api.routes import dashboard, evidence, frameworks, questionnaires, supp
 from src.api.routes import auth
 from src.db.database import get_connection
 from src.db.seed import seed
+
+load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+
+logger = logging.getLogger(__name__)
 
 
 class PrettyJSONResponse(JSONResponse):
@@ -28,7 +40,7 @@ _etl_task = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: initialize and seed database, start ETL loop. Shutdown: cleanup."""
+    """Startup: initialize and seed database, start MQTT + ETL loop. Shutdown: cleanup."""
     global _etl_task
 
     conn = get_connection()
@@ -37,8 +49,15 @@ async def lifespan(app: FastAPI):
     if count == 0:
         seed()
 
-    from src.orchestration.etl import etl_loop
-    _etl_task = asyncio.create_task(etl_loop(interval=60))
+    factory_id = os.environ.get("MQTT_FACTORY_ID", "factory_bd_001")
+
+    from src.orchestration.etl import start_mqtt_consumer, stop_mqtt_consumer, etl_loop
+    try:
+        start_mqtt_consumer(factory_id=factory_id)
+    except Exception as e:
+        logger.warning("main.mqtt_unavailable error=%s — continuing without MQTT", e)
+
+    _etl_task = asyncio.create_task(etl_loop(interval=60, factory_id=factory_id))
 
     yield
 
@@ -48,7 +67,10 @@ async def lifespan(app: FastAPI):
             await _etl_task
         except asyncio.CancelledError:
             pass
+    stop_mqtt_consumer()
 
+
+cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174,http://localhost:3000")
 
 app = FastAPI(
     title="ESG+SCRM Platform",
@@ -60,7 +82,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"],
+    allow_origins=[o.strip() for o in cors_origins.split(",")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
