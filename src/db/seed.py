@@ -1,35 +1,51 @@
 """
-Seed the SQLite database with demo data.
-Migrates all hardcoded data from route modules into the database.
+Seed the database with demo data.
+Works with both SQLite (dev/test) and PostgreSQL (production).
 Run once: python -m src.db.seed
 """
-import sqlite3
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
-from src.db.database import DB_PATH, reset_database
+from src.db.database import reset_database, get_connection, release_connection, _execute
 from src.evidence.hash_chain import compute_hash
+
+ORG_ID = "org_bd_001"
+FACTORY_ID = "factory_bd_001"
 
 
 def seed() -> None:
     reset_database()
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA foreign_keys=ON")
+    conn = get_connection(row_factory=False)
 
+    _seed_org_and_admin(conn)
     _seed_metrics_and_evidence(conn)
     _seed_risk_flags(conn)
     _seed_suppliers(conn)
     _seed_supplier_scope3(conn)
     _seed_questionnaire_responses(conn)
-    _seed_org_and_admin(conn)
 
-    conn.commit()
-    conn.close()
-    print(f"Seeded database at {DB_PATH}")
+    release_connection(conn)
+    print("Seeded database successfully")
 
 
-def _seed_metrics_and_evidence(conn: sqlite3.Connection) -> None:
+def _seed_org_and_admin(conn) -> None:
+    """Seed demo organization and admin user."""
+    from src.auth.password import hash_password
+
+    _execute(conn, """
+        INSERT INTO organizations (id, name, industry, employee_count, primary_buyer, annual_revenue_usd, connected_since)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, ("org_bd_001", "Bangladesh Export Textiles Ltd.", "Garment manufacturing",
+          3200, "H&M", 42000000, "2024-09-15"))
+
+    _execute(conn, """
+        INSERT INTO users (id, org_id, email, password_hash, full_name, role)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, ("usr_admin_001", ORG_ID, "admin@textilebd.com",
+          hash_password("admin123"), "System Administrator", "admin"))
+
+
+def _seed_metrics_and_evidence(conn) -> None:
     """Seed metrics with real SHA-256 evidence chain."""
     metrics_data = [
         {"cluster": "energy_kwh", "value": 2847320, "unit": "kWh", "confidence": "HIGH",
@@ -52,7 +68,6 @@ def _seed_metrics_and_evidence(conn: sqlite3.Connection) -> None:
          "recorded_at": "2024-12-31T23:59:00Z"},
     ]
 
-    # Historical trend data
     trends = [
         {"cluster": "energy_kwh", "months": [
             ("2024-09-30T23:59:00Z", 2710400),
@@ -80,9 +95,8 @@ def _seed_metrics_and_evidence(conn: sqlite3.Connection) -> None:
     prev_hash = None
     all_records = []
 
-    # Collect historical trend records first, then latest metrics
     for trend in trends:
-        for timestamp, value in trend["months"][:-1]:  # exclude last (duplicated in latest)
+        for timestamp, value in trend["months"][:-1]:
             all_records.append({
                 "cluster": trend["cluster"],
                 "value": value,
@@ -107,26 +121,23 @@ def _seed_metrics_and_evidence(conn: sqlite3.Connection) -> None:
     for rec in all_records:
         the_hash = compute_hash(rec["cluster"], rec["value"], rec["timestamp"], prev_hash)
 
-        # Diesel is the "tampered" demo artifact
         stored_hash = f"TAMPERED_{the_hash[:32]}" if rec["cluster"] == "diesel_consumed" else the_hash
 
-        cursor = conn.execute(
-            """INSERT INTO metrics (factory_id, cluster, value, unit, confidence, source, period, recorded_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            ("factory_bd_001", rec["cluster"], rec["value"], rec["unit"],
-             rec["confidence"], rec["source"], rec["period"], rec["timestamp"]),
-        )
-        metric_id = cursor.lastrowid
-        conn.execute(
-            """INSERT INTO evidence_chain (metric_id, cluster, hash, prev_hash, value, computed_at, source_system)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (metric_id, rec["cluster"], stored_hash, prev_hash, rec["value"],
-             datetime.now(timezone.utc).isoformat(), "seed"),
-        )
+        cur = _execute(conn, """
+            INSERT INTO metrics (org_id, factory_id, cluster, value, unit, confidence, source, period, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (ORG_ID, FACTORY_ID, rec["cluster"], rec["value"], rec["unit"],
+              rec["confidence"], rec["source"], rec["period"], rec["timestamp"]))
+        metric_id = cur.lastrowid
+        _execute(conn, """
+            INSERT INTO evidence_chain (metric_id, cluster, hash, prev_hash, value, computed_at, source_system)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (metric_id, rec["cluster"], stored_hash, prev_hash, rec["value"],
+              datetime.now(timezone.utc).isoformat(), "seed"))
         prev_hash = the_hash
 
 
-def _seed_risk_flags(conn: sqlite3.Connection) -> None:
+def _seed_risk_flags(conn) -> None:
     flags = [
         {"id": "flag_001", "flag_text": "Water consumption 18% above regulatory threshold for Q4 2024",
          "cluster": "G6", "severity": "WARNING", "days_overdue": 45, "priority_score": 3.0,
@@ -146,59 +157,57 @@ def _seed_risk_flags(conn: sqlite3.Connection) -> None:
          "created_at": "2024-11-20T09:00:00Z", "acknowledged": 0},
     ]
     for f in flags:
-        conn.execute(
-            """INSERT INTO risk_flags (id, factory_id, flag_text, cluster, severity, days_overdue,
+        _execute(conn, """
+            INSERT INTO risk_flags (id, org_id, factory_id, flag_text, cluster, severity, days_overdue,
                priority_score, created_at, acknowledged, acknowledged_at, acknowledged_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (f["id"], "factory_bd_001", f["flag_text"], f["cluster"], f["severity"],
-             f["days_overdue"], f["priority_score"], f["created_at"], f["acknowledged"],
-             f.get("acknowledged_at"), f.get("acknowledged_by")),
-        )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (f["id"], ORG_ID, FACTORY_ID, f["flag_text"], f["cluster"], f["severity"],
+              f["days_overdue"], f["priority_score"], f["created_at"], f["acknowledged"],
+              f.get("acknowledged_at"), f.get("acknowledged_by")))
 
 
-def _seed_suppliers(conn: sqlite3.Connection) -> None:
+def _seed_suppliers(conn) -> None:
     suppliers = [
         {"id": "sup_001", "name": "Gujarat Cotton Traders", "country": "IN",
          "industry": "Cotton trading", "tier": "tier2", "annual_spend_usd": 2400000,
-         "preferred_channel": "whatsapp", "questionnaire_status": "responded",
+         "phone": "+91-9876543210", "preferred_channel": "whatsapp", "questionnaire_status": "responded",
          "risk_tier": "A", "risk_score": 2.1, "active_flags": 0, "certifications": "GOTS,OEKO-TEX"},
         {"id": "sup_002", "name": "Vietnam Fabrics Co.", "country": "VN",
          "industry": "Fabric manufacturing", "tier": "tier2", "annual_spend_usd": 3200000,
-         "preferred_channel": "whatsapp", "questionnaire_status": "responded",
+         "phone": "+84-901234567", "preferred_channel": "whatsapp", "questionnaire_status": "responded",
          "risk_tier": "B", "risk_score": 5.8, "active_flags": 2, "certifications": "OEKO-TEX,GRS"},
         {"id": "sup_003", "name": "Bangladesh Dye House Ltd.", "country": "BD",
          "industry": "Dyeing & finishing", "tier": "tier1", "annual_spend_usd": 8400000,
-         "preferred_channel": "whatsapp", "questionnaire_status": "pending",
+         "phone": "+880-171234567", "preferred_channel": "whatsapp", "questionnaire_status": "pending",
          "risk_tier": "A", "risk_score": 3.4, "active_flags": 1, "certifications": "GOTS,WRAP,SMETA"},
         {"id": "sup_004", "name": "Thai Thread Industries", "country": "TH",
          "industry": "Thread manufacturing", "tier": "tier2", "annual_spend_usd": 1800000,
-         "preferred_channel": "line", "questionnaire_status": "pending",
+         "phone": "+66-812345678", "preferred_channel": "line", "questionnaire_status": "pending",
          "risk_tier": "B", "risk_score": 6.2, "active_flags": 1, "certifications": "GOTS,BCI"},
         {"id": "sup_005", "name": "Myanmar Packaging Co.", "country": "MM",
          "industry": "Packaging materials", "tier": "tier3", "annual_spend_usd": 480000,
-         "preferred_channel": "email", "questionnaire_status": "not_sent",
+         "phone": "+95-912345678", "preferred_channel": "email", "questionnaire_status": "not_sent",
          "risk_tier": "C", "risk_score": 9.1, "active_flags": 4, "certifications": ""},
         {"id": "sup_006", "name": "Indonesia Synthetic Fibers", "country": "ID",
          "industry": "Synthetic fiber manufacturing", "tier": "tier2", "annual_spend_usd": 4200000,
-         "preferred_channel": "whatsapp", "questionnaire_status": "responded",
+         "phone": "+62-81234567890", "preferred_channel": "whatsapp", "questionnaire_status": "responded",
          "risk_tier": "B", "risk_score": 7.1, "active_flags": 2, "certifications": "OEKO-TEX"},
         {"id": "sup_007", "name": "India Zippers & Hardware", "country": "IN",
          "industry": "Trims & accessories", "tier": "tier3", "annual_spend_usd": 620000,
-         "preferred_channel": "whatsapp", "questionnaire_status": "responded",
+         "phone": "+91-9876501234", "preferred_channel": "whatsapp", "questionnaire_status": "responded",
          "risk_tier": "C", "risk_score": 8.4, "active_flags": 3, "certifications": "ISO 14001"},
     ]
     for s in suppliers:
-        conn.execute(
-            """INSERT INTO suppliers (id, name, country, industry, tier, annual_spend_usd,
-               preferred_channel, questionnaire_status, risk_tier, risk_score, active_flags, certifications)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (s["id"], s["name"], s["country"], s["industry"], s["tier"],
-             s["annual_spend_usd"], s["preferred_channel"], s["questionnaire_status"],
-             s["risk_tier"], s["risk_score"], s["active_flags"], s["certifications"]),
-        )
+        _execute(conn, """
+            INSERT INTO suppliers (id, org_id, name, country, industry, tier, annual_spend_usd,
+               phone, preferred_channel, questionnaire_status, risk_tier, risk_score, active_flags, certifications)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (s["id"], ORG_ID, s["name"], s["country"], s["industry"], s["tier"],
+              s["annual_spend_usd"], s["phone"], s["preferred_channel"], s["questionnaire_status"],
+              s["risk_tier"], s["risk_score"], s["active_flags"], s["certifications"]))
 
 
-def _seed_supplier_scope3(conn: sqlite3.Connection) -> None:
+def _seed_supplier_scope3(conn) -> None:
     records = [
         {"supplier_id": "sup_001", "category": "Purchased Goods", "annual_spend_usd": 2400000,
          "scope3_tco2e": 412.8, "calculation_method": "spend_based",
@@ -226,54 +235,31 @@ def _seed_supplier_scope3(conn: sqlite3.Connection) -> None:
          "data_source": "Spend-based estimate"},
     ]
     for r in records:
-        conn.execute(
-            """INSERT INTO supplier_scope3 (supplier_id, category, annual_spend_usd, scope3_tco2e,
+        _execute(conn, """
+            INSERT INTO supplier_scope3 (org_id, supplier_id, category, annual_spend_usd, scope3_tco2e,
                calculation_method, emission_factor, confidence, data_source)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (r["supplier_id"], r["category"], r["annual_spend_usd"], r["scope3_tco2e"],
-             r["calculation_method"], r["emission_factor"], r["confidence"], r["data_source"]),
-        )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (ORG_ID, r["supplier_id"], r["category"], r["annual_spend_usd"], r["scope3_tco2e"],
+              r["calculation_method"], r["emission_factor"], r["confidence"], r["data_source"]))
 
 
-def _seed_questionnaire_responses(conn: sqlite3.Connection) -> None:
-    """Seed responses from suppliers who have responded."""
+def _seed_questionnaire_responses(conn) -> None:
     responses = [
-        # sup_001 - Gujarat Cotton Traders
         {"supplier_id": "sup_001", "tier": 1, "question_id": "1", "response_text": "4,820,000", "response_value": 4820000, "channel": "whatsapp"},
         {"supplier_id": "sup_001", "tier": 1, "question_id": "2", "response_text": "12,400", "response_value": 12400, "channel": "whatsapp"},
         {"supplier_id": "sup_001", "tier": 1, "question_id": "3", "response_text": "Yes — 850 kW rooftop solar", "response_value": None, "channel": "whatsapp"},
-        # sup_002 - Vietnam Fabrics Co.
         {"supplier_id": "sup_002", "tier": 1, "question_id": "1", "response_text": "3,210,000", "response_value": 3210000, "channel": "whatsapp"},
         {"supplier_id": "sup_002", "tier": 1, "question_id": "2", "response_text": "8,900", "response_value": 8900, "channel": "whatsapp"},
-        # sup_006 - Indonesia Synthetic Fibers
         {"supplier_id": "sup_006", "tier": 1, "question_id": "1", "response_text": "5,400,000", "response_value": 5400000, "channel": "whatsapp"},
         {"supplier_id": "sup_006", "tier": 1, "question_id": "2", "response_text": "15,200", "response_value": 15200, "channel": "whatsapp"},
-        # sup_007 - India Zippers & Hardware
         {"supplier_id": "sup_007", "tier": 1, "question_id": "1", "response_text": "920,000", "response_value": 920000, "channel": "whatsapp"},
     ]
     for r in responses:
-        conn.execute(
-            """INSERT INTO questionnaire_responses (supplier_id, tier, question_id, response_text, response_value, channel)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (r["supplier_id"], r["tier"], r["question_id"], r["response_text"],
-             r["response_value"], r["channel"]),
-        )
-
-
-def _seed_org_and_admin(conn: sqlite3.Connection) -> None:
-    """Seed demo organization and admin user."""
-    from src.auth.password import hash_password
-
-    conn.execute(
-        "INSERT OR IGNORE INTO organizations (id, name, industry, employee_count, primary_buyer, annual_revenue_usd, connected_since) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        ("org_bd_001", "Bangladesh Export Textiles Ltd.", "Garment manufacturing",
-         3200, "H&M", 42000000, "2024-09-15"),
-    )
-    conn.execute(
-        "INSERT OR IGNORE INTO users (id, org_id, email, password_hash, full_name, role) VALUES (?, ?, ?, ?, ?, ?)",
-        ("usr_admin_001", "org_bd_001", "admin@textilebd.com",
-         hash_password("admin123"), "System Administrator", "admin"),
-    )
+        _execute(conn, """
+            INSERT INTO questionnaire_responses (org_id, supplier_id, tier, question_id, response_text, response_value, channel)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (ORG_ID, r["supplier_id"], r["tier"], r["question_id"], r["response_text"],
+              r["response_value"], r["channel"]))
 
 
 if __name__ == "__main__":

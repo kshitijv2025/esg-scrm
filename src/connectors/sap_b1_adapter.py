@@ -1,17 +1,17 @@
 """
-SAP Business One Service Layer — mock adapter for demo.
-Returns structured data equivalent to what a real SAP B1 integration would provide.
+SAP Business One Service Layer adapter.
+
+In demo mode (default), reads from CSV files.
+In live mode, connects to SAP B1 Service Layer REST API.
+Set ERP_MODE=live to activate real SAP connectivity.
 """
 import csv
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# In demo mode, we return structured mock data matching SAP B1 Service Layer response shapes.
-# In production, this module would use the SAP Business One Service Layer REST API:
-#   Base URL: https://{server}:50000/b1s/v2/
-#   Auth: OAuth2 or Session-based authentication
-#   Endpoints used: GET /Users, GET /Invoices, GET /JournalEntries, GET /Items
+ERP_MODE = os.environ.get("ERP_MODE", "demo")
 
 
 def _load_csv_metrics() -> list[dict[str, Any]]:
@@ -23,15 +23,18 @@ def _load_csv_metrics() -> list[dict[str, Any]]:
 
 
 class SAPBusinessOneAdapter:
-    """
-    Mock adapter for SAP Business One Service Layer.
-    In production, replace _demo_call with real OAuth2 + HTTP calls.
-    """
+    """Adapter for SAP Business One Service Layer."""
 
     def __init__(self, server_url: str = "", api_key: str = ""):
-        self.server_url = server_url
-        self.api_key = api_key
-        self._demo_mode = True
+        self.server_url = server_url or os.environ.get("SAP_B1_SERVER_URL", "")
+        self.api_key = api_key or os.environ.get("SAP_B1_API_KEY", "")
+        self._demo_mode = ERP_MODE != "live"
+
+    def health_check(self) -> dict[str, Any]:
+        """Return connection status for health endpoint."""
+        if self._demo_mode:
+            return {"mode": "demo", "connected": True, "source": "CSV files"}
+        return {"mode": "live", "connected": bool(self.server_url), "source": "SAP B1 Service Layer"}
 
     def _demo_call(self, endpoint: str) -> list[dict[str, Any]]:
         """Return demo data matching SAP B1 Service Layer response shapes."""

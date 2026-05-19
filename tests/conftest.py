@@ -13,7 +13,7 @@ def _auth_headers():
     """Return Authorization headers with a valid test JWT."""
     token = create_token({
         "sub": "usr_test_001",
-        "org_id": "org_test_001",
+        "org_id": "org_bd_001",
         "email": "test@test.com",
         "role": "admin",
     })

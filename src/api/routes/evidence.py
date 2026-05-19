@@ -1,10 +1,12 @@
 """Evidence drill-down API — investor demo with real SHA-256 verification"""
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from datetime import datetime
 import hashlib
 import csv
 from pathlib import Path
 from typing import Optional
+
+from src.api.middleware.auth import require_auth
 
 router = APIRouter()
 
@@ -191,7 +193,7 @@ for rec in _csv_records:
 
 
 @router.get("/drilldown/{metric_type}")
-def evidence_drilldown(metric_type: str):
+def evidence_drilldown(metric_type: str, user: dict = Depends(require_auth)):
     evidence = EVIDENCE_CHAIN.get(metric_type)
     if not evidence:
         return {"error": "metric not found"}, 404
@@ -199,7 +201,7 @@ def evidence_drilldown(metric_type: str):
 
 
 @router.get("/verify/{metric_type}")
-def verify_chain(metric_type: str):
+def verify_chain(metric_type: str, user: dict = Depends(require_auth)):
     """Verify the hash chain for a given metric with real SHA-256 recomputation."""
     evidence = EVIDENCE_CHAIN.get(metric_type)
     if not evidence:
@@ -230,7 +232,7 @@ def verify_chain(metric_type: str):
 
 
 @router.get("/full-chain/{metric_type}")
-def full_chain(metric_type: str):
+def full_chain(metric_type: str, user: dict = Depends(require_auth)):
     """Return full lineage chain for a metric."""
     evidence = EVIDENCE_CHAIN.get(metric_type)
     if not evidence:
@@ -249,7 +251,6 @@ def full_chain(metric_type: str):
             "confidence": current["confidence"],
         })
         if current.get("upstream_records"):
-            # In real system: fetch upstream record
             break
         else:
             break

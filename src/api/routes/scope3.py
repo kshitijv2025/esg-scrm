@@ -1,8 +1,9 @@
 """
 Scope 3 categories API — backed by SQLite database.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from src.api.middleware.auth import require_auth
 from src.db.database import fetch_all_scope3, fetch_suppliers, fetch_coverage_stats
 
 router = APIRouter()
@@ -19,9 +20,10 @@ CATEGORY_META = {
 
 
 @router.get("/categories")
-def get_categories():
-    scope3_records = fetch_all_scope3()
-    suppliers = fetch_suppliers()
+def get_categories(user: dict = Depends(require_auth)):
+    org_id = user["org_id"]
+    scope3_records = fetch_all_scope3(org_id=org_id)
+    suppliers = fetch_suppliers(org_id=org_id)
     total_suppliers = len(suppliers)
     responded = len([s for s in suppliers if s.get("questionnaire_status") == "responded"])
 
@@ -41,10 +43,11 @@ def get_categories():
 
 
 @router.get("/completeness")
-def get_scope3_completeness():
+def get_scope3_completeness(user: dict = Depends(require_auth)):
     """Overall Scope 3 coverage + per-category breakdown."""
-    stats = fetch_coverage_stats()
-    scope3_records = fetch_all_scope3()
+    org_id = user["org_id"]
+    stats = fetch_coverage_stats(org_id=org_id)
+    scope3_records = fetch_all_scope3(org_id=org_id)
 
     by_category = []
     for rec in scope3_records:

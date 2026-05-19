@@ -7,7 +7,7 @@ from fpdf import fpdf
 from starlette.responses import StreamingResponse
 
 from src.api.middleware.auth import require_auth
-from src.db.database import get_connection, _fetchall, _fetchone
+from src.db.database import get_connection, release_connection, _fetchall, _fetchone
 
 
 router = APIRouter()
@@ -135,107 +135,122 @@ _METRIC_LABELS = {
 def _fetch_latest_metrics(org_id: str = "") -> list[dict]:
     """Retrieve the latest metric per cluster, scoped to org_id."""
     conn = get_connection()
-    rows = []
-    for cluster in _METRIC_CLUSTERS:
-        try:
-            if org_id:
-                row = _fetchone(
-                    conn,
-                    "SELECT m.value, m.unit, m.confidence, m.source, m.period, m.recorded_at "
-                    "FROM metrics m JOIN factories f ON m.factory_id = f.id "
-                    "WHERE f.org_id = ? AND m.cluster = ? "
-                    "ORDER BY m.recorded_at DESC LIMIT 1",
-                    (org_id, cluster),
-                )
-            else:
+    try:
+        rows = []
+        for cluster in _METRIC_CLUSTERS:
+            try:
+                if org_id:
+                    row = _fetchone(
+                        conn,
+                        "SELECT m.value, m.unit, m.confidence, m.source, m.period, m.recorded_at "
+                        "FROM metrics m JOIN factories f ON m.factory_id = f.id "
+                        "WHERE f.org_id = ? AND m.cluster = ? "
+                        "ORDER BY m.recorded_at DESC LIMIT 1",
+                        (org_id, cluster),
+                    )
+                else:
+                    row = _fetchone(
+                        conn,
+                        "SELECT value, unit, confidence, source, period, recorded_at "
+                        "FROM metrics WHERE cluster = ? ORDER BY recorded_at DESC LIMIT 1",
+                        (cluster,),
+                    )
+            except Exception:
+                # Fallback if factories table doesn't exist (e.g., test DB)
                 row = _fetchone(
                     conn,
                     "SELECT value, unit, confidence, source, period, recorded_at "
                     "FROM metrics WHERE cluster = ? ORDER BY recorded_at DESC LIMIT 1",
                     (cluster,),
                 )
-        except Exception:
-            # Fallback if factories table doesn't exist (e.g., test DB)
-            row = _fetchone(
-                conn,
-                "SELECT value, unit, confidence, source, period, recorded_at "
-                "FROM metrics WHERE cluster = ? ORDER BY recorded_at DESC LIMIT 1",
-                (cluster,),
-            )
-        if row:
-            row["cluster"] = cluster
-            row["label"] = _METRIC_LABELS.get(cluster, cluster)
-            rows.append(row)
-    return rows
+            if row:
+                row["cluster"] = cluster
+                row["label"] = _METRIC_LABELS.get(cluster, cluster)
+                rows.append(row)
+        return rows
+    finally:
+        release_connection(conn)
+
+
+_SEVERITY_ORDER = "CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'WARNING' THEN 2 WHEN 'INFO' THEN 3 ELSE 4 END"
 
 
 def _fetch_risk_flags_ordered(org_id: str = "") -> list[dict]:
     """Retrieve risk flags sorted by severity (CRITICAL first), scoped to org_id."""
     conn = get_connection()
-    severity_order = "CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'WARNING' THEN 2 WHEN 'INFO' THEN 3 ELSE 4 END"
-    if org_id:
+    try:
+        if org_id:
+            return _fetchall(
+                conn,
+                "SELECT id, flag_text, cluster, severity, days_overdue, priority_score, "
+                "created_at, acknowledged "
+                "FROM risk_flags WHERE org_id = ? "
+                f"ORDER BY {_SEVERITY_ORDER} ASC, priority_score DESC",
+                (org_id,),
+            )
         return _fetchall(
             conn,
-            f"SELECT id, flag_text, cluster, severity, days_overdue, priority_score, "
-            f"created_at, acknowledged "
-            f"FROM risk_flags WHERE org_id = ? "
-            f"ORDER BY {severity_order} ASC, priority_score DESC",
-            (org_id,),
+            "SELECT id, flag_text, cluster, severity, days_overdue, priority_score, "
+            "created_at, acknowledged "
+            f"FROM risk_flags ORDER BY {_SEVERITY_ORDER} ASC, priority_score DESC",
         )
-    return _fetchall(
-        conn,
-        f"SELECT id, flag_text, cluster, severity, days_overdue, priority_score, "
-        f"created_at, acknowledged "
-        f"FROM risk_flags ORDER BY {severity_order} ASC, priority_score DESC",
-    )
+    finally:
+        release_connection(conn)
 
 
 def _fetch_framework_mappings(framework: str = "") -> list[dict]:
     """Retrieve framework mappings (reference data, shared across orgs)."""
     conn = get_connection()
-    if framework:
+    try:
+        if framework:
+            return _fetchall(
+                conn,
+                "SELECT cluster, metric_name, framework, disclosure_code, description "
+                "FROM framework_mappings WHERE framework = ? "
+                "ORDER BY cluster, disclosure_code",
+                (framework.lower(),),
+            )
         return _fetchall(
             conn,
-            "SELECT cluster, kpi_name, framework, disclosure_code, description "
-            "FROM framework_mappings WHERE framework = ? "
-            "ORDER BY cluster, disclosure_code",
-            (framework.lower(),),
+            "SELECT cluster, metric_name, framework, disclosure_code, description "
+            "FROM framework_mappings ORDER BY framework, cluster, disclosure_code",
         )
-    return _fetchall(
-        conn,
-        "SELECT cluster, kpi_name, framework, disclosure_code, description "
-        "FROM framework_mappings ORDER BY framework, cluster, disclosure_code",
-    )
+    finally:
+        release_connection(conn)
 
 
 def _fetch_supplier_summary(org_id: str = "") -> dict:
     """Return supplier stats scoped to org_id."""
     conn = get_connection()
-    org_filter = "WHERE org_id = ?" if org_id else ""
-    params = (org_id,) if org_id else ()
+    try:
+        params = (org_id,) if org_id else ()
 
-    total_row = _fetchone(conn, f"SELECT COUNT(*) as cnt FROM suppliers {org_filter}", params)
-    total = total_row["cnt"] if total_row else 0
+        if org_id:
+            total_row = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ?", params)
+            tier_a = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ? AND risk_tier = 'A'", params)
+            tier_b = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ? AND risk_tier = 'B'", params)
+            tier_c = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ? AND risk_tier = 'C'", params)
+            responded = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ? AND questionnaire_status = 'responded'", params)
+        else:
+            total_row = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers")
+            tier_a = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE risk_tier = 'A'")
+            tier_b = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE risk_tier = 'B'")
+            tier_c = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE risk_tier = 'C'")
+            responded = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE questionnaire_status = 'responded'")
 
-    tier_a = _fetchone(conn, f"SELECT COUNT(*) as cnt FROM suppliers {org_filter} {'AND' if org_filter else 'WHERE'} risk_tier = 'A'", params)
-    tier_b = _fetchone(conn, f"SELECT COUNT(*) as cnt FROM suppliers {org_filter} {'AND' if org_filter else 'WHERE'} risk_tier = 'B'", params)
-    tier_c = _fetchone(conn, f"SELECT COUNT(*) as cnt FROM suppliers {org_filter} {'AND' if org_filter else 'WHERE'} risk_tier = 'C'", params)
+        total = total_row["cnt"] if total_row else 0
+        response_count = responded["cnt"] if responded else 0
 
-    responded = _fetchone(
-        conn,
-        f"SELECT COUNT(*) as cnt FROM suppliers {org_filter} {'AND' if org_filter else 'WHERE'} questionnaire_status = 'responded'",
-        params,
-    )
-    response_count = responded["cnt"] if responded else 0
-
-    return {
-        "total": total,
-        "tier_a": tier_a["cnt"] if tier_a else 0,
-        "tier_b": tier_b["cnt"] if tier_b else 0,
-        "tier_c": tier_c["cnt"] if tier_c else 0,
-        "response_count": response_count,
-        "response_rate": round(response_count / total * 100) if total else 0,
-    }
+        return {
+            "total": total,
+            "tier_a": tier_a["cnt"] if tier_a else 0,
+            "tier_b": tier_b["cnt"] if tier_b else 0,
+            "tier_c": tier_c["cnt"] if tier_c else 0,
+            "response_count": response_count,
+            "response_rate": round(response_count / total * 100) if total else 0,
+        }
+    finally:
+        release_connection(conn)
 
 
 # ---------------------------------------------------------------------------
@@ -499,7 +514,7 @@ def _render_framework_mapping(pdf: fpdf.FPDF, mappings: list[dict], framework: s
 
         pdf.set_font("Helvetica", "", 9)
         pdf.set_text_color(*_TEXT_DIM)
-        kpi = mapping.get("kpi_name", "")
+        kpi = mapping.get("metric_name", "")
         desc = mapping.get("description", "")
         label = f"{kpi}" + (f" - {desc}" if desc else "")
         pdf.cell(0, 5, _safe(label), new_x="LMARGIN", new_y="NEXT")

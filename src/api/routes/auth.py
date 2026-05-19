@@ -10,8 +10,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr, validator
 
 from src.auth.jwt import create_token, decode_token
-from src.auth.password import hash_password, verify_password
-from src.db.database import get_connection
+from src.auth.password import hash_password, needs_rehash, verify_password
+from src.db.database import get_connection, release_connection
 
 router = APIRouter()
 
@@ -45,6 +45,8 @@ class RegisterRequest(BaseModel):
     password: str
     full_name: str
     org_name: Optional[str] = None
+    industry: Optional[str] = ""
+    country: Optional[str] = ""
 
     @validator("password")
     def _validate_password_strength(cls, v: str) -> str:
@@ -79,29 +81,29 @@ def register(body: RegisterRequest, request: Request):
         raise HTTPException(429, "Too many requests. Try again later.")
 
     conn = get_connection()
+    try:
+        existing = conn.execute("SELECT id FROM users WHERE email = ?", (body.email,)).fetchone()
+        if existing:
+            raise HTTPException(409, "Registration failed. Please try again.")
 
-    existing = conn.execute("SELECT id FROM users WHERE email = ?", (body.email,)).fetchone()
-    if existing:
-        conn.close()
-        raise HTTPException(409, "Registration failed. Please try again.")
+        org_id = f"org_{uuid.uuid4().hex[:12]}"
+        org_name = body.org_name or f"{body.full_name}'s Organization"
 
-    org_id = f"org_{uuid.uuid4().hex[:12]}"
-    org_name = body.org_name or f"{body.full_name}'s Organization"
+        conn.execute(
+            "INSERT INTO organizations (id, name, industry, country) VALUES (?, ?, ?, ?)",
+            (org_id, org_name, body.industry or "", body.country or ""),
+        )
 
-    conn.execute(
-        "INSERT INTO organizations (id, name) VALUES (?, ?)",
-        (org_id, org_name),
-    )
+        user_id = f"usr_{uuid.uuid4().hex[:12]}"
+        password_hash = hash_password(body.password)
 
-    user_id = f"usr_{uuid.uuid4().hex[:12]}"
-    password_hash = hash_password(body.password)
-
-    conn.execute(
-        "INSERT INTO users (id, org_id, email, password_hash, full_name, role) VALUES (?, ?, ?, ?, ?, ?)",
-        (user_id, org_id, body.email, password_hash, body.full_name, "admin"),
-    )
-    conn.commit()
-    conn.close()
+        conn.execute(
+            "INSERT INTO users (id, org_id, email, password_hash, full_name, role) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, org_id, body.email, password_hash, body.full_name, "admin"),
+        )
+        conn.commit()
+    finally:
+        release_connection(conn)
 
     token = create_token({
         "sub": user_id,
@@ -112,7 +114,7 @@ def register(body: RegisterRequest, request: Request):
 
     return {
         "user": {"id": user_id, "email": body.email, "full_name": body.full_name, "role": "admin"},
-        "org": {"id": org_id, "name": org_name},
+        "org": {"id": org_id, "name": org_name, "industry": body.industry or "", "country": body.country or ""},
         "token": token,
     }
 
@@ -124,32 +126,40 @@ def login(body: LoginRequest, request: Request):
         raise HTTPException(429, "Too many requests. Try again later.")
 
     conn = get_connection()
-    user = conn.execute(
-        "SELECT id, org_id, email, password_hash, full_name, role, is_active FROM users WHERE email = ?",
-        (body.email,),
-    ).fetchone()
-    conn.close()
+    try:
+        user = conn.execute(
+            "SELECT id, org_id, email, password_hash, full_name, role, is_active FROM users WHERE email = ?",
+            (body.email,),
+        ).fetchone()
 
-    if not user or not verify_password(body.password, user["password_hash"]):
-        raise HTTPException(401, "Invalid email or password")
+        if not user or not verify_password(body.password, user["password_hash"]):
+            raise HTTPException(401, "Invalid email or password")
 
-    if not user["is_active"]:
-        raise HTTPException(403, "Account is deactivated")
+        # Migrate legacy SHA-256 hashes to bcrypt on successful login
+        if needs_rehash(user["password_hash"]):
+            new_hash = hash_password(body.password)
+            conn.execute(
+                "UPDATE users SET password_hash = ? WHERE id = ?",
+                (new_hash, user["id"]),
+            )
 
-    token = create_token({
-        "sub": user["id"],
-        "org_id": user["org_id"],
-        "email": user["email"],
-        "role": user["role"],
-    })
+        if not user["is_active"]:
+            raise HTTPException(403, "Account is deactivated")
 
-    conn = get_connection()
-    conn.execute(
-        "UPDATE users SET last_login = ? WHERE id = ?",
-        (datetime.now(timezone.utc).isoformat(), user["id"]),
-    )
-    conn.commit()
-    conn.close()
+        token = create_token({
+            "sub": user["id"],
+            "org_id": user["org_id"],
+            "email": user["email"],
+            "role": user["role"],
+        })
+
+        conn.execute(
+            "UPDATE users SET last_login = ? WHERE id = ?",
+            (datetime.now(timezone.utc).isoformat(), user["id"]),
+        )
+        conn.commit()
+    finally:
+        release_connection(conn)
 
     return {
         "user": {
@@ -186,15 +196,17 @@ def me(request: Request):
         raise HTTPException(401, "Valid token required")
 
     conn = get_connection()
-    user = conn.execute(
-        "SELECT id, org_id, email, full_name, role, is_active, last_login FROM users WHERE id = ?",
-        (payload["sub"],),
-    ).fetchone()
-    org = conn.execute(
-        "SELECT id, name, industry FROM organizations WHERE id = ?",
-        (payload["org_id"],),
-    ).fetchone()
-    conn.close()
+    try:
+        user = conn.execute(
+            "SELECT id, org_id, email, full_name, role, is_active, last_login FROM users WHERE id = ?",
+            (payload["sub"],),
+        ).fetchone()
+        org = conn.execute(
+            "SELECT id, name, industry, country FROM organizations WHERE id = ?",
+            (payload["org_id"],),
+        ).fetchone()
+    finally:
+        release_connection(conn)
 
     if not user:
         raise HTTPException(404, "User not found")

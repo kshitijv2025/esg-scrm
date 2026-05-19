@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { useAuth } from "../contexts/AuthContext";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -29,10 +30,9 @@ const METRIC_LABELS = {
   scope3_category6: "Business Travel (Scope 3)",
 };
 
-function getTabFromHash() {
-  const hash = window.location.hash.replace("#", "") || "/";
-  if (hash === "/" || hash === "") return "operations";
-  return hash.replace("/", "");
+function getTabFromPath(pathname) {
+  if (pathname === "/" || pathname === "") return "operations";
+  return pathname.replace("/", "");
 }
 
 export default function DashboardPage() {
@@ -42,10 +42,13 @@ export default function DashboardPage() {
   const [scope3Completeness, setScope3Completeness] = useState(null);
   const [selectedMetric, setSelectedMetric] = useState(null);
   const [evidence, setEvidence] = useState(null);
-  const [activeTab, setActiveTab] = useState(getTabFromHash);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const addToast = useToast();
+
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activeTab = getTabFromPath(location.pathname);
 
   useWebSocket((event) => {
     if (event.type === "new_flag") {
@@ -83,12 +86,6 @@ export default function DashboardPage() {
     loadData();
   }, [loadData]);
 
-  useEffect(() => {
-    const onHashChange = () => setActiveTab(getTabFromHash());
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
-
   function showEvidence(metricType) {
     setSelectedMetric(metricType);
     apiFetch(`/evidence/drilldown/${metricType}`)
@@ -112,12 +109,7 @@ export default function DashboardPage() {
 
   return (
     <div className="app">
-      <Header
-        activeTab={activeTab}
-        onTabChange={(tab) => {
-          window.location.hash = `#/${tab}`;
-        }}
-      />
+      <Header />
       <main className="app-main">
         {activeTab === "operations" && <OperationsTab {...tabProps} />}
         {activeTab === "supply-chain" && <SupplyChainTab />}

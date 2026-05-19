@@ -5,6 +5,7 @@ import {
   useEffect,
   useCallback,
 } from "react";
+import { Navigate } from "react-router-dom";
 import {
   apiFetch,
   getToken,
@@ -123,7 +124,5 @@ export function RequireAuth({ children }) {
 }
 
 function NavigateToLogin() {
-  window.location.hash = "#/login";
-  window.location.reload();
-  return null;
+  return <Navigate to="/login" replace />;
 }

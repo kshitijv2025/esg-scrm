@@ -19,6 +19,11 @@ def _get_secret() -> str:
                 "JWT_SECRET environment variable is required. "
                 "Set it in .env before starting the application."
             )
+        if len(_jwt_secret) < 32:
+            raise RuntimeError(
+                f"JWT_SECRET must be at least 32 characters (got {len(_jwt_secret)}). "
+                "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+            )
     return _jwt_secret
 
 
@@ -33,8 +38,11 @@ def _b64url_decode(data: str) -> bytes:
     return base64.urlsafe_b64decode(data)
 
 
-def create_token(payload: dict[str, Any], expires_in: int = 86400) -> str:
-    """Create a signed JWT token. Default expiry: 24 hours."""
+def create_token(payload: dict[str, Any], expires_in: Optional[int] = None) -> str:
+    """Create a signed JWT token. Default expiry from JWT_EXPIRY_HOURS env var (24h)."""
+    if expires_in is None:
+        hours = int(os.environ.get("JWT_EXPIRY_HOURS", "24"))
+        expires_in = hours * 3600
     header = {"alg": "HS256", "typ": "JWT"}
     now = int(time.time())
     payload = {**payload, "iat": now, "exp": now + expires_in}

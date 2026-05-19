@@ -28,8 +28,13 @@ dependencies = [
     "pydantic[email]>=2.0.0",
     # HTTP client (SAP B1 connector, WhatsApp API)
     "httpx>=0.25.0",
+    "requests>=2.31.0",
     # MQTT (smart meter ingestion)
     "paho-mqtt>=1.6.0",
+    # PostgreSQL driver (production database)
+    "psycopg2-binary>=2.9.0",
+    # Security
+    "bcrypt>=4.0.0",
     # Utilities
     "python-dotenv>=1.0.0",
     "fpdf2>=2.7.0",

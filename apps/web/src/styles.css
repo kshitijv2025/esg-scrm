@@ -817,12 +817,29 @@ body {
   .coverage-hero { padding: 28px 24px; }
   .coverage-hero-number { font-size: 3.5rem; }
   .coverage-stats { gap: 24px; }
+  .profile-grid { grid-template-columns: repeat(2, 1fr); }
+  .scorecard-grid { grid-template-columns: 1fr 1fr; }
+  .panel { padding: 20px; }
 }
 
 @media (max-width: 600px) {
   .metrics-grid { grid-template-columns: 1fr; }
   .summary-strip { grid-template-columns: 1fr 1fr; }
   .header-nav { width: 100%; justify-content: center; }
+  .header-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .profile-grid { grid-template-columns: 1fr; }
+  .scorecard-grid { grid-template-columns: 1fr; }
+  .coverage-hero { padding: 20px 16px; }
+  .coverage-hero-number { font-size: 2.8rem; }
+  .coverage-hero-pct { font-size: 1.5rem; }
+  .coverage-stats { flex-direction: column; gap: 12px; }
+  .ci-grid { grid-template-columns: 1fr; }
+  .risk-summary-strip { flex-direction: column; }
+  .supplier-table, .framework-table, .geo-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 /* ─── Supply Chain Panel ───────────────────────────────────────────────────── */

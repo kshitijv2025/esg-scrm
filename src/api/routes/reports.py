@@ -1,27 +1,28 @@
 """ESG Report PDF generation - detailed investor-grade report"""
 import re
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 from datetime import datetime
 from fpdf import FPDF
 
+from src.api.middleware.auth import require_auth
 from src.api.routes.frameworks import FRAMEWORK_OUTPUTS
 from src.db.database import fetch_metrics, fetch_trends, fetch_risk_flags
 
 
 # Dynamic data loaders — replaces old module-level constants
-def _get_metrics():
+def _get_metrics(org_id: str = ""):
     """Fetch metrics and build display dict matching old METRICS shape."""
     from src.api.routes.dashboard import _build_metric_display
-    rows = fetch_metrics()
+    rows = fetch_metrics(org_id=org_id)
     return {row["cluster"]: _build_metric_display(row) for row in rows}
 
 
-def _get_trend_data():
+def _get_trend_data(org_id: str = ""):
     """Fetch trend data grouped by cluster."""
     result = {}
     for cluster in ("energy_kwh", "emissions_tco2", "water_m3"):
-        rows = fetch_trends(cluster)
+        rows = fetch_trends(cluster, org_id=org_id)
         month_names = {
             "2024-09": "Sep 2024", "2024-10": "Oct 2024", "2024-11": "Nov 2024",
             "2024-12": "Dec 2024", "2025-01": "Jan 2025",
@@ -33,9 +34,9 @@ def _get_trend_data():
     return result
 
 
-def _get_alerts():
+def _get_alerts(org_id: str = ""):
     """Fetch risk flags as alert-shaped dicts."""
-    flags = fetch_risk_flags()
+    flags = fetch_risk_flags(org_id=org_id)
     return [
         {
             "id": f["id"],
@@ -94,10 +95,10 @@ class ESGReportPDF(FPDF):
                   align="C")
 
 
-def build_pdf():
-    METRICS = _get_metrics()
-    TREND_DATA = _get_trend_data()
-    ALERTS = _get_alerts()
+def build_pdf(org_id: str = ""):
+    METRICS = _get_metrics(org_id=org_id)
+    TREND_DATA = _get_trend_data(org_id=org_id)
+    ALERTS = _get_alerts(org_id=org_id)
     pdf = ESGReportPDF()
     pdf.set_auto_page_break(auto=True, margin=22)
     pdf.add_page()
@@ -735,10 +736,11 @@ def _framework_block(pdf, fw_key, metric_label, metric_key, accent_color, METRIC
 
 
 @router.get("/esg-pdf")
-def esg_report():
-    """Stream a 4-page detailed ESG PDF report."""
-    pdf_bytes = build_pdf()
-    filename = "ESG-Report-Bangladesh-Export-Textiles-2025-Q1.pdf"
+def esg_report(user: dict = Depends(require_auth)):
+    """Stream a 4-page detailed ESG PDF report scoped to the user's org."""
+    org_id = user["org_id"]
+    pdf_bytes = build_pdf(org_id=org_id)
+    filename = f"ESG-Report-{org_id}-{datetime.now().strftime('%Y-Q%q')}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

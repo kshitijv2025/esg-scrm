@@ -1,10 +1,15 @@
 """
 Dashboard API routes — backed by SQLite database.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from datetime import datetime, timezone
 
-from src.db.database import fetch_metrics, fetch_trends, fetch_all_trends, fetch_risk_flags
+from src.api.middleware.auth import require_auth
+from src.api.middleware.rbac import require_role, EDITOR_ROLES
+from src.db.database import (
+    fetch_metrics, fetch_trends, fetch_all_trends,
+    fetch_risk_flags, acknowledge_risk_flag,
+)
 
 router = APIRouter()
 
@@ -87,8 +92,9 @@ def _build_metric_display(row: dict) -> dict:
 
 
 @router.get("/live")
-def live_metrics():
-    rows = fetch_metrics()
+def live_metrics(user: dict = Depends(require_auth)):
+    org_id = user["org_id"]
+    rows = fetch_metrics(org_id=org_id)
     metrics = {}
     for row in rows:
         metrics[row["cluster"]] = _build_metric_display(row)
@@ -98,12 +104,12 @@ def live_metrics():
         "metrics": metrics,
         "hash_chain_valid": all_valid,
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "org_id": "org_bd_001",
+        "org_id": org_id,
     }
 
 
 @router.get("/trends/{metric_type}")
-def trends(metric_type: str):
+def trends(metric_type: str, user: dict = Depends(require_auth)):
     rows = fetch_trends(metric_type)
     data = [{"month": r["recorded_at"][:7], "value": r["value"]} for r in rows]
 
@@ -124,7 +130,7 @@ def trends(metric_type: str):
 
 
 @router.get("/trends")
-def all_trends():
+def all_trends(user: dict = Depends(require_auth)):
     rows = fetch_all_trends()
     grouped: dict[str, dict] = {}
 
@@ -149,8 +155,9 @@ def all_trends():
 
 
 @router.get("/operations-summary")
-def operations_summary():
-    rows = fetch_metrics()
+def operations_summary(user: dict = Depends(require_auth)):
+    org_id = user["org_id"]
+    rows = fetch_metrics(org_id=org_id)
     if not rows:
         return {"error": "no data available"}, 503
 
@@ -171,7 +178,7 @@ def operations_summary():
         })
 
     return {
-        "org_id": "org_bd_001",
+        "org_id": org_id,
         "period": "January 2025",
         "clusters": clusters,
         "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -179,8 +186,9 @@ def operations_summary():
 
 
 @router.get("/alerts")
-def alerts():
-    flags = fetch_risk_flags()
+def alerts(user: dict = Depends(require_auth)):
+    org_id = user["org_id"]
+    flags = fetch_risk_flags(org_id=org_id)
     alert_list = []
     for f in flags:
         alert_list.append({
@@ -198,8 +206,9 @@ def alerts():
 
 
 @router.post("/alerts/{alert_id}/acknowledge")
-def acknowledge_alert(alert_id: str):
-    result = acknowledge_risk_flag(alert_id, "dashboard@esg-scrm.com")
+def acknowledge_alert(alert_id: str, user: dict = Depends(require_auth)):
+    require_role(user, EDITOR_ROLES)
+    result = acknowledge_risk_flag(alert_id, user["email"], org_id=user["org_id"])
     if result is None:
         return {"error": "not found"}, 404
     return result

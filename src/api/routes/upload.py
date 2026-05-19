@@ -6,19 +6,69 @@ through MQTT as defined by the platform architecture.
 """
 import csv
 import io
+import os
+import re
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from src.api.middleware.auth import require_auth
 from src.api.middleware.rbac import require_role, EDITOR_ROLES
-from src.db.database import _execute, get_connection
+from src.db.database import _execute, get_connection, release_connection
 
 router = APIRouter()
 
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 MAX_ROWS = 1000
 VALID_TIERS = {"tier1", "tier2", "tier3"}
+ALLOWED_EXTENSIONS = {".csv"}
+ALLOWED_MIME_TYPES = {"text/csv", "text/plain", "application/vnd.ms-excel", "application/octet-stream"}
+_FILENAME_SANITIZER = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def _validate_upload(file: UploadFile) -> None:
+    """Validate file extension, MIME type, and filename safety."""
+    filename = file.filename or ""
+    if not filename:
+        raise HTTPException(status_code=400, detail="No filename provided.")
+
+    # Filename sanitization — reject paths with / or ..
+    if "/" in filename or ".." in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename — path separators not allowed.")
+
+    if _FILENAME_SANITIZER.search(filename):
+        raise HTTPException(status_code=400, detail="Invalid filename — contains unsafe characters.")
+
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file extension '{ext}'. Only {', '.join(sorted(ALLOWED_EXTENSIONS))} allowed.",
+        )
+
+    content_type = (file.content_type or "").lower()
+    if content_type and content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid content type '{content_type}'. Expected CSV.",
+        )
+
+
+def _log_upload(org_id: str, user_id: str, upload_type: str, filename: str,
+                imported: int, errors: list[str]) -> None:
+    """Record upload in audit_log."""
+    conn = get_connection()
+    try:
+        _execute(conn, """
+            INSERT INTO audit_log (org_id, user_id, action, resource_type, resource_id, details)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            org_id, user_id, "upload_csv", upload_type, filename,
+            f"imported={imported}, errors={len(errors)}" + (f", first_error={errors[0]}" if errors else ""),
+        ))
+    finally:
+        release_connection(conn)
 
 
 def _validate_csv_headers(
@@ -73,6 +123,7 @@ def upload_suppliers(
 
     Rows missing name, country, or tier are skipped and reported as errors.
     """
+    _validate_upload(file)
     reader, _raw = _read_csv(file)
     _validate_csv_headers(reader, SUPPLIER_REQUIRED_COLUMNS, "suppliers")
 
@@ -133,15 +184,11 @@ def upload_suppliers(
         )
         imported += 1
 
-    if not _is_postgres():
-        conn.close()
+    release_connection(conn)
 
+    _log_upload(org_id, user["sub"], "suppliers", file.filename or "", imported, errors)
     return {"imported": imported, "errors": errors}
 
-
-# ---------------------------------------------------------------------------
-# POST /emission-factors
-# ---------------------------------------------------------------------------
 
 EMISSION_FACTOR_COLUMNS = [
     "factor_name", "category", "value", "unit", "country_code", "source", "year",
@@ -159,6 +206,7 @@ def upload_emission_factors(
 
     CSV columns: factor_name, category, value, unit, country_code, source, year.
     """
+    _validate_upload(file)
     reader, _raw = _read_csv(file)
     _validate_csv_headers(reader, EMISSION_FACTOR_COLUMNS, "emission factors")
 
@@ -199,7 +247,7 @@ def upload_emission_factors(
             conn,
             """
             INSERT INTO emission_factors
-                (org_id, factor_name, category, value, unit, country_code, source, year)
+                (org_id, factor_name, category, factor_value, unit, country_code, source, year)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -215,9 +263,9 @@ def upload_emission_factors(
         )
         imported += 1
 
-    if not _is_postgres():
-        conn.close()
+    release_connection(conn)
 
+    _log_upload(org_id, user["sub"], "emission_factors", file.filename or "", imported, errors)
     return {"imported": imported, "errors": errors}
 
 
@@ -244,6 +292,7 @@ def upload_certifications(
     Each row appends the certification to the supplier's existing certifications
     field as a comma-separated string.
     """
+    _validate_upload(file)
     reader, _raw = _read_csv(file)
     _validate_csv_headers(reader, CERTIFICATION_COLUMNS, "certifications")
 
@@ -295,10 +344,37 @@ def upload_certifications(
         )
         imported += 1
 
-    if not _is_postgres():
-        conn.close()
+    release_connection(conn)
 
+    _log_upload(org_id, user["sub"], "certifications", file.filename or "", imported, errors)
     return {"imported": imported, "errors": errors}
+
+
+# ---------------------------------------------------------------------------
+# GET /history
+# ---------------------------------------------------------------------------
+
+@router.get("/history")
+def upload_history(
+    skip: int = 0,
+    limit: int = 50,
+    user: dict = Depends(require_auth),
+):
+    """Return recent CSV upload history for the organization."""
+    org_id = user["org_id"]
+    conn = get_connection()
+    from src.db.database import _fetchall
+    try:
+        rows = _fetchall(conn, """
+            SELECT id, user_id, action, resource_type, resource_id, details, created_at
+            FROM audit_log
+            WHERE org_id = ? AND action = 'upload_csv'
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """, (org_id, limit, skip))
+        return {"uploads": rows, "total": len(rows)}
+    finally:
+        release_connection(conn)
 
 
 def _is_postgres() -> bool:

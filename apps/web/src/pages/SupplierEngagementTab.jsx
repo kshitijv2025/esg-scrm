@@ -3,14 +3,35 @@ import { apiFetch } from "../api/client";
 import { ErrorState } from "../components/ErrorState";
 
 export default function SupplierEngagementTab() {
+  const [suppliers, setSuppliers] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  function loadData() {
+  useEffect(() => {
+    apiFetch("/suppliers")
+      .then((r) => r.json())
+      .then((data) => {
+        const list = data.suppliers || data || [];
+        setSuppliers(list);
+        if (list.length > 0) {
+          setSelectedId(list[0].id);
+        } else {
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        setError(err.message || "Failed to load suppliers");
+        setLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) return;
     setLoading(true);
     setError(null);
-    apiFetch("/questionnaires/whatsapp-preview/sup_001")
+    apiFetch(`/questionnaires/whatsapp-preview/${selectedId}`)
       .then((r) => r.json())
       .then((d) => {
         setPreview(d);
@@ -20,14 +41,12 @@ export default function SupplierEngagementTab() {
         setError(err.message || "Failed to load supplier engagement data");
         setLoading(false);
       });
-  }
-
-  useEffect(() => {
-    loadData();
-  }, []);
+  }, [selectedId]);
 
   if (error) {
-    return <ErrorState message={error} onRetry={loadData} />;
+    return (
+      <ErrorState message={error} onRetry={() => setSelectedId(selectedId)} />
+    );
   }
 
   if (loading || !preview) {
@@ -38,6 +57,19 @@ export default function SupplierEngagementTab() {
     <div className="panel whatsapp-panel">
       <h2>Supplier Engagement</h2>
       <p className="panel-subtitle">WhatsApp Business · Real-time response</p>
+
+      <div className="supplier-select-row">
+        <select
+          value={selectedId || ""}
+          onChange={(e) => setSelectedId(e.target.value)}
+        >
+          {suppliers.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <div className="business-account-card">
         <div className="ba-header">

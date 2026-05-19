@@ -1,3 +1,4 @@
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import Logo from "./Logo";
 
@@ -9,8 +10,16 @@ const TABS = [
   { id: "supplier-engagement", label: "Engagement" },
 ];
 
-export default function Header({ activeTab, onTabChange }) {
+function getTabFromPath(pathname) {
+  if (pathname === "/" || pathname === "") return "operations";
+  return pathname.replace("/", "");
+}
+
+export default function Header() {
   const { user, logout } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activeTab = getTabFromPath(location.pathname);
 
   return (
     <header className="app-header">
@@ -28,7 +37,7 @@ export default function Header({ activeTab, onTabChange }) {
           <button
             key={tab.id}
             className={`header-tab ${activeTab === tab.id ? "active" : ""}`}
-            onClick={() => onTabChange(tab.id)}
+            onClick={() => navigate(`/${tab.id}`)}
           >
             {tab.label}
           </button>

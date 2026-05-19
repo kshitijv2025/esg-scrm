@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from src.api.middleware.auth import require_auth
 from src.api.routes import dashboard, evidence, frameworks, questionnaires, suppliers, reports, risk, scope3
 from src.api.routes import auth, emission_factors, alerts, audit, upload, templates, reports_pdf, whatsapp, ml
-from src.db.database import get_connection
+from src.db.database import get_connection, release_connection
 from src.db.seed import seed
 
 load_dotenv()
@@ -44,8 +44,10 @@ async def lifespan(app: FastAPI):
     global _etl_task
 
     conn = get_connection()
-    count = conn.execute("SELECT COUNT(*) as cnt FROM metrics").fetchone()["cnt"]
-    conn.close()
+    try:
+        count = conn.execute("SELECT COUNT(*) as cnt FROM metrics").fetchone()["cnt"]
+    finally:
+        release_connection(conn)
     if count == 0:
         seed()
         from src.db.seed_emission_factors import seed_emission_factors
@@ -95,8 +97,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in cors_origins.split(",")],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 app.include_router(dashboard.router, prefix="/api/dashboard", dependencies=[Depends(require_auth)])
@@ -114,6 +116,7 @@ app.include_router(upload.router, prefix="/api/upload", dependencies=[Depends(re
 app.include_router(templates.router, prefix="/api/templates", dependencies=[Depends(require_auth)])
 app.include_router(reports_pdf.router, prefix="/api/reports", dependencies=[Depends(require_auth)])
 app.include_router(whatsapp.router, prefix="/api/whatsapp", dependencies=[Depends(require_auth)])
+app.include_router(whatsapp.webhook_router, prefix="/api/whatsapp")
 app.include_router(ml.router, prefix="/api/ml", dependencies=[Depends(require_auth)])
 app.include_router(auth.router, prefix="/api/auth")
 
@@ -136,11 +139,13 @@ def health():
 @app.get("/api/org", dependencies=[Depends(require_auth)])
 def org_info(user: dict = Depends(require_auth)):
     conn = get_connection()
-    org = conn.execute(
-        "SELECT id, name, industry FROM organizations WHERE id = ?",
-        (user["org_id"],),
-    ).fetchone()
-    conn.close()
+    try:
+        org = conn.execute(
+            "SELECT id, name, industry FROM organizations WHERE id = ?",
+            (user["org_id"],),
+        ).fetchone()
+    finally:
+        release_connection(conn)
 
     if not org:
         return {"id": user["org_id"], "name": "Unknown", "industry": ""}

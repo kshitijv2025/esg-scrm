@@ -1,0 +1,7 @@
+{
+  "risk_tier": 0.3,
+  "risk_flags": 0.25,
+  "certifications": 0.15,
+  "questionnaire": 0.15,
+  "country": 0.15
+}

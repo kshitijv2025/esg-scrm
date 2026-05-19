@@ -7,7 +7,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
-from src.db.database import DB_PATH, get_connection
+from src.db.database import DB_PATH, get_connection, release_connection
 from src.realtime.alerts import push_new_flag
 
 DEFAULT_THRESHOLDS: dict[str, dict[str, Any]] = {
@@ -104,7 +104,7 @@ def check_latest_metrics(factory_id: str = "factory_bd_001") -> list[dict[str, A
             conn.commit()
         return new_flags
     finally:
-        conn.close()
+        release_connection(conn)
 
 
 async def detect_and_alert(factory_id: str = "factory_bd_001") -> None:
