@@ -363,7 +363,7 @@ def verify_webhook(token: str, body: bytes, signature: str) -> bool:
     expected = hmac.new(
         token.encode("utf-8"),
         body,
-        hashlib.sha1,
+        hashlib.sha256,
     ).hexdigest()
 
     return hmac.compare_digest(expected, signature)

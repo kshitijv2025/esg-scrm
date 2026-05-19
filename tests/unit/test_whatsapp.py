@@ -5,7 +5,7 @@ Covers:
   2. send_message returns status dict in demo mode
   3. send_questionnaire formats questionnaire message
   4. send_risk_alert formats alert message
-  5. verify_webhook validates HMAC-SHA1 signature
+  5. verify_webhook validates HMAC-SHA256 signature
   6. POST /api/whatsapp/send requires auth + editor role
   7. POST /api/whatsapp/send rejects missing supplier_id
   8. POST /api/whatsapp/send rejects missing message
@@ -259,19 +259,19 @@ class TestSendRiskAlert:
 
 
 # ---------------------------------------------------------------------------
-# 5. verify_webhook validates HMAC-SHA1 signature
+# 5. verify_webhook validates HMAC-SHA256 signature
 # ---------------------------------------------------------------------------
 
 
 class TestVerifyWebhook:
-    """verify_webhook uses HMAC-SHA1 to validate Twilio signatures."""
+    """verify_webhook uses HMAC-SHA256 to validate Twilio signatures."""
 
     def test_valid_signature(self):
         """Correct signature returns True."""
         token = "test_auth_token_value"
         body = b"Body=Hello&From=whatsapp:%2B1234567890"
         expected = hmac.new(
-            token.encode("utf-8"), body, hashlib.sha1
+            token.encode("utf-8"), body, hashlib.sha256
         ).hexdigest()
         assert verify_webhook(token, body, expected) is True
 
@@ -294,7 +294,7 @@ class TestVerifyWebhook:
         token = "test_auth_token_value"
         body = b"correct body"
         sig = hmac.new(
-            token.encode("utf-8"), body, hashlib.sha1
+            token.encode("utf-8"), body, hashlib.sha256
         ).hexdigest()
         assert verify_webhook(token, b"tampered body", sig) is False
 

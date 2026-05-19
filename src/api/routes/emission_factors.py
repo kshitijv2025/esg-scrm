@@ -1,7 +1,8 @@
 """Emission factor API — reference data for carbon calculations."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 
+from src.api.middleware.auth import require_auth
 from src.db.database import fetch_emission_factors, get_connection, release_connection, _fetchall
 
 router = APIRouter()
@@ -12,6 +13,7 @@ def list_factors(
     category: Optional[str] = None,
     country_code: Optional[str] = None,
     factor_name: Optional[str] = None,
+    user: dict = Depends(require_auth),
 ):
     """List emission factors with optional filters."""
     conn = get_connection()
@@ -37,7 +39,7 @@ def list_factors(
 
 
 @router.get("/categories")
-def list_categories():
+def list_categories(user: dict = Depends(require_auth)):
     """List distinct emission factor categories."""
     conn = get_connection()
     try:
@@ -52,6 +54,7 @@ def calculate_emissions(
     activity_value: float,
     factor_name: str,
     country_code: str = "",
+    user: dict = Depends(require_auth),
 ):
     """Calculate emissions from activity data using the matching emission factor."""
     factors = fetch_emission_factors(factor_name=factor_name, country_code=country_code)

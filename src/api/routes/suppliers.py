@@ -201,7 +201,7 @@ def _get_spend_based_factor(industry: str, org_id: str) -> dict:
         rows = _fetchall(conn, """
             SELECT factor_name, category, factor_value, unit, source
             FROM emission_factors
-            WHERE category = 'spend_based' AND (org_id = ? OR org_id = '' OR org_id IS NULL)
+            WHERE category = 'scope3_spend' AND (org_id = ? OR org_id = '' OR org_id IS NULL)
             ORDER BY CASE WHEN org_id = ? THEN 0 ELSE 1 END
             LIMIT 1
         """, (org_id, org_id))
