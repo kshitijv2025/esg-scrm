@@ -134,7 +134,7 @@ class WhatsAppClient:
         try:
             supplier = _fetchone(
                 conn,
-                "SELECT id, name, phone, tier, org_id FROM suppliers WHERE id = ?",
+                "SELECT id, name, phone, tier, org_id, country FROM suppliers WHERE id = ?",
                 (supplier_id,),
             )
             if supplier is None:
@@ -159,8 +159,9 @@ class WhatsAppClient:
                 }
 
             questions = json.loads(template["questions"])
+            country_code = supplier.get("country", "")
             body = self._format_questionnaire(
-                supplier["name"], questions, template["name"]
+                supplier["name"], questions, template["name"], country_code
             )
 
             result = self.send_message(phone, body)
@@ -169,21 +170,22 @@ class WhatsAppClient:
             _execute(
                 conn,
                 """INSERT INTO whatsapp_messages
-                   (org_id, supplier_id, direction, phone, body, twilio_message_sid)
-                   VALUES (?, ?, 'outbound', ?, ?, ?)""",
+                   (org_id, supplier_id, template_id, direction, phone, body, twilio_message_sid)
+                   VALUES (?, ?, ?, 'outbound', ?, ?, ?)""",
                 (
                     supplier.get("org_id", ""),
                     supplier_id,
+                    template["id"],
                     self._format_phone(phone),
                     body,
                     result.get("message_sid", ""),
                 ),
             )
 
-            # Update supplier questionnaire status
+            # Update supplier questionnaire status and record sent timestamp
             _execute(
                 conn,
-                "UPDATE suppliers SET questionnaire_status = 'pending', updated_at = datetime('now') WHERE id = ?",
+                "UPDATE suppliers SET questionnaire_status = 'pending', questionnaire_sent_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
                 (supplier_id,),
             )
 
@@ -317,12 +319,24 @@ class WhatsAppClient:
 
     @staticmethod
     def _format_questionnaire(
-        supplier_name: str, questions: list[dict], template_name: str
+        supplier_name: str, questions: list[dict], template_name: str,
+        country_code: str = ""
     ) -> str:
-        """Build a human-readable WhatsApp message body from questions."""
+        """Build a human-readable WhatsApp message body from questions.
+
+        Selects translated question text when available for the supplier's country:
+        - BD/BGD → Bengali (question_text_bn)
+        - VN/VNM → Vietnamese (question_text_vi)
+        Falls back to the default question text otherwise.
+        """
         lines: list[str] = []
         for i, q in enumerate(questions, 1):
             text = q.get("text", q.get("question", ""))
+            # Auto-language dispatch: prefer translated text when available
+            if country_code in ("BD", "BGD") and q.get("text_bn"):
+                text = q["text_bn"]
+            elif country_code in ("VN", "VNM") and q.get("text_vi"):
+                text = q["text_vi"]
             unit = q.get("unit", "")
             lines.append(f"{i}. {text}")
             if unit:
