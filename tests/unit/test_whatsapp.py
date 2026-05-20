@@ -27,8 +27,9 @@ from fastapi.testclient import TestClient
 
 from src.api.main import app
 from src.connectors.whatsapp import WhatsAppClient, verify_webhook
-from src.db.database import get_connection, _execute, reset_database
+from src.db.database import get_connection, _execute, _fetchone, reset_database
 from src.auth.jwt import create_token
+from src.api.routes.whatsapp import _parse_questionnaire_response
 
 
 # ---------------------------------------------------------------------------
@@ -604,3 +605,142 @@ class TestUnauthenticatedRejection:
             "alert_text": "Risk",
         })
         assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# 15. Bengali / Vietnamese number parsing in questionnaire responses
+# ---------------------------------------------------------------------------
+
+
+class TestMultilangNumberParsing:
+    """WhatsApp questionnaire replies use language-aware number parsing.
+
+    Covers B4.3: ``src/ml/number_parsing.py`` must be called in the
+    WhatsApp response parsing flow for BD (Bengali) and VN (Vietnamese)
+    suppliers.
+    """
+
+    def _setup_questionnaire_flow(self, org_id, supplier_id, country_code):
+        """Insert a supplier and a minimal questionnaire template + questions.
+
+        ``country_code`` is the ISO 2-letter code (BD, VN, TH…) stored in
+        the ``suppliers.country`` column (the seed data uses ISO codes).
+        """
+        conn = get_connection()
+        _execute(conn,
+            """INSERT OR REPLACE INTO suppliers
+               (id, org_id, name, country, industry, tier,
+                annual_spend_usd, phone, preferred_channel)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (supplier_id, org_id, f"Test Supplier {country_code}",
+             country_code, "Manufacturing",
+             "tier2", 5_000_000, "+880-1712345678", "whatsapp"))
+        _execute(conn,
+            """INSERT OR REPLACE INTO questionnaire_templates
+               (id, org_id, name)
+               VALUES (?, ?, ?)""",
+            (1, org_id, "Multi-lang Test"))
+        _execute(conn,
+            """INSERT OR REPLACE INTO questionnaire_questions
+               (id, template_id, question_id, question_text, question_type, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (1, 1, "annual_spend", "Annual spend (USD)", "number", 1))
+        _execute(conn,
+            """INSERT OR REPLACE INTO whatsapp_messages
+               (org_id, supplier_id, template_id, direction, phone, body,
+                twilio_message_sid)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (org_id, supplier_id, "tpl_multilang", "outbound",
+             "+880-1712345678", "Please reply with your annual spend.",
+             "mockSID_outbound"))
+
+    def test_bengali_number_words_parsed(self, _fresh_db):
+        """Bengali number words (lakh, hazar) are parsed into correct values."""
+        org_id = "org_bd_001"
+        supplier_id = "sup_bd_test"
+        self._setup_questionnaire_flow(org_id, supplier_id, "BD")
+
+        conn = get_connection()
+        # "1 lakh 1 hazar" = 1×100000 + 1×1000 = 101,000
+        result = _parse_questionnaire_response(
+            conn,
+            supplier_id=supplier_id,
+            body_text="1. 1 lakh 1 hazar",
+            org_id=org_id,
+        )
+        assert result["stored_count"] == 1
+
+        row = _fetchone(conn,
+            "SELECT response_value FROM questionnaire_responses "
+            "WHERE supplier_id = ? AND question_id = ?",
+            (supplier_id, "q1"))
+        assert row is not None
+        assert row["response_value"] == 101_000.0
+
+    def test_bengali_digit_characters_parsed(self, _fresh_db):
+        """Bengali digit characters (০-৯) are parsed correctly."""
+        org_id = "org_bd_001"
+        supplier_id = "sup_bd_digit"
+        self._setup_questionnaire_flow(org_id, supplier_id, "BD")
+
+        conn = get_connection()
+        # ১২৩ = 123
+        result = _parse_questionnaire_response(
+            conn,
+            supplier_id=supplier_id,
+            body_text="1. ১২৩",
+            org_id=org_id,
+        )
+        assert result["stored_count"] == 1
+
+        row = _fetchone(conn,
+            "SELECT response_value FROM questionnaire_responses "
+            "WHERE supplier_id = ? AND question_id = ?",
+            (supplier_id, "q1"))
+        assert row is not None
+        assert row["response_value"] == 123.0
+
+    def test_vietnamese_number_words_parsed(self, _fresh_db):
+        """Vietnamese number words (triệu, nghìn) are parsed into correct values."""
+        org_id = "org_vn_001"
+        supplier_id = "sup_vn_test"
+        self._setup_questionnaire_flow(org_id, supplier_id, "VN")
+
+        conn = get_connection()
+        # "1.5 triệu" = 1,500,000
+        result = _parse_questionnaire_response(
+            conn,
+            supplier_id=supplier_id,
+            body_text="1. 1.5 triệu",
+            org_id=org_id,
+        )
+        assert result["stored_count"] == 1
+
+        row = _fetchone(conn,
+            "SELECT response_value FROM questionnaire_responses "
+            "WHERE supplier_id = ? AND question_id = ?",
+            (supplier_id, "q1"))
+        assert row is not None
+        assert row["response_value"] == 1_500_000.0
+
+    def test_standard_arabic_numerals_still_work(self, _fresh_db):
+        """Plain Arabic numerals (no language) continue to parse correctly."""
+        org_id = "org_bd_001"
+        supplier_id = "sup_standard"
+        self._setup_questionnaire_flow(org_id, supplier_id, "BD")
+
+        conn = get_connection()
+        result = _parse_questionnaire_response(
+            conn,
+            supplier_id=supplier_id,
+            body_text="1. 4,200,000",
+            org_id=org_id,
+        )
+        assert result["stored_count"] == 1
+
+        row = _fetchone(conn,
+            "SELECT response_value FROM questionnaire_responses "
+            "WHERE supplier_id = ? AND question_id = ?",
+            (supplier_id, "q1"))
+        assert row is not None
+        assert row["response_value"] == 4_200_000.0

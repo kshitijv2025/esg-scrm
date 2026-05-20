@@ -10,7 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from src.api.middleware.auth import require_auth
 from src.api.middleware.rbac import require_role, EDITOR_ROLES
 from src.connectors.whatsapp import WhatsAppClient, verify_webhook
-from src.db.database import get_connection, release_connection, _fetchone, _execute, _fetchall
+from src.db.database import (
+    get_connection, release_connection, _fetchone, _execute, _fetchall,
+    fetch_response_based_coverage, validate_response_value, fetch_supplier,
+)
+from src.ml.number_parsing import parse_number, detect_language
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +179,7 @@ async def webhook(request: Request) -> dict[str, Any]:
         )
 
         supplier_id = supplier["id"] if supplier else ""
+        supplier_name = supplier.get("name", "") if supplier else ""
         org_id = supplier.get("org_id", "") if supplier else ""
 
         # Store the incoming message
@@ -193,17 +198,40 @@ async def webhook(request: Request) -> dict[str, Any]:
         )
 
         # Attempt to parse questionnaire responses
+        prev_coverage_pct = 0.0
+        stored_count = 0
+        discarded_count = 0
         if supplier_id and body_text:
-            _parse_questionnaire_response(conn, supplier_id, body_text, org_id)
+            # Capture previous coverage before response is recorded
+            prev_cov = fetch_response_based_coverage(org_id)
+            prev_coverage_pct = prev_cov.get("spend_weighted_coverage_pct", 0.0)
 
-        return {"status": "received", "supplier_id": supplier_id}
+            parse_result = _parse_questionnaire_response(conn, supplier_id, body_text, org_id, supplier)
+            stored_count = parse_result.get("stored_count", 0)
+            discarded_count = parse_result.get("discarded_count", 0)
+
+            # Send coverage notification after response recorded
+            if supplier_name and prev_coverage_pct is not None:
+                from src.api.routes.questionnaires import _send_coverage_notification
+                _send_coverage_notification(org_id, supplier_name, prev_coverage_pct)
+
+        return {
+            "status": "received",
+            "supplier_id": supplier_id,
+            "stored_count": stored_count,
+            "discarded_count": discarded_count,
+        }
     finally:
         release_connection(conn)
 
 
 def _parse_questionnaire_response(
-    conn: Any, supplier_id: str, body_text: str, org_id: str
-) -> None:
+    conn: Any,
+    supplier_id: str,
+    body_text: str,
+    org_id: str,
+    supplier: dict[str, Any] | None = None,
+) -> dict[str, int]:
     """Parse a questionnaire response from a WhatsApp reply.
 
     Accepts replies in the format ``"<number>. <answer>"`` per line.
@@ -212,9 +240,47 @@ def _parse_questionnaire_response(
         1. 4200000
         2. 12400
         3. Yes
+
+    Each numeric response is validated against spend-based sanity bounds
+    (see ``validate_response_value``).  Results are stored with
+    ``validation_status`` and ``validation_notes`` populated.
+
+    Returns a dict with ``stored_count`` and ``discarded_count``.
     """
+    # Fetch supplier if not provided (used for spend-based validation)
+    if supplier is None:
+        supplier = fetch_supplier(supplier_id)
+
+    # Detect language for number parsing based on supplier's country
+    # (suppliers.country stores ISO 2-letter code: BD, VN, TH, etc.)
+    country_code = supplier.get("country") if supplier else None
+    number_lang = detect_language(country_code)
+
+    # Resolve the template that was actually sent to this supplier
+    last_outbound = _fetchone(
+        conn,
+        """SELECT template_id FROM whatsapp_messages
+           WHERE supplier_id = ? AND direction = 'outbound'
+           ORDER BY created_at DESC LIMIT 1""",
+        (supplier_id,),
+    )
+
+    template_id = last_outbound["template_id"] if last_outbound else 0
+
+    # Build the set of valid question IDs for this template
+    valid_question_ids: set[str] = set()
+    if template_id:
+        rows = _fetchall(
+            conn,
+            "SELECT id FROM questionnaire_questions WHERE template_id = ?",
+            (template_id,),
+        )
+        # questionnaire_questions.id is integer; question_id in responses is 'q1', 'q2', ...
+        valid_question_ids = {f"q{row['id']}" for row in rows}
+
     lines = body_text.strip().splitlines()
-    responses_found = 0
+    stored_count = 0
+    discarded_count = 0
 
     for line in lines:
         line = line.strip()
@@ -232,16 +298,34 @@ def _parse_questionnaire_response(
 
         question_num = int(number_part)
         answer = parts[1].strip()
-
-        # Try to parse as a numeric value
-        response_value = None
-        try:
-            cleaned = answer.replace(",", "")
-            response_value = float(cleaned)
-        except (ValueError, TypeError):
-            pass
-
         question_id = f"q{question_num}"
+
+        # Validate: skip if template_id is known but question_id is not in it
+        if valid_question_ids and question_id not in valid_question_ids:
+            logger.warning(
+                "whatsapp.questionnaire_response.discarded",
+                question_id=question_id,
+                template_id=template_id,
+                supplier_id=supplier_id,
+                answer_preview=answer[:50],
+            )
+            discarded_count += 1
+            continue
+
+        # Try to parse as a numeric value using language-aware parser
+        # (handles Bengali: shat/hazar/lakh/crore; Vietnamese: ngh×n/triệu/tỷ)
+        response_value: float | None = None
+        parsed = parse_number(answer, language=number_lang)
+        if parsed is not None:
+            response_value = parsed
+
+        # Validate numeric responses against spend-based sanity bounds
+        if response_value is not None and supplier:
+            validation_status, validation_notes = validate_response_value(
+                supplier, question_id, response_value
+            )
+        else:
+            validation_status, validation_notes = "verified", ""
 
         # Check if a response already exists for this question
         existing = _fetchone(
@@ -254,29 +338,36 @@ def _parse_questionnaire_response(
             _execute(
                 conn,
                 """UPDATE questionnaire_responses
-                   SET response_text = ?, response_value = ?, responded_at = datetime('now'), channel = 'whatsapp'
+                   SET response_text = ?, response_value = ?, responded_at = datetime('now'),
+                       channel = 'whatsapp', validation_status = ?, validation_notes = ?
                    WHERE supplier_id = ? AND question_id = ?""",
-                (answer, response_value, supplier_id, question_id),
+                (answer, response_value, validation_status, validation_notes,
+                 supplier_id, question_id),
             )
         else:
             _execute(
                 conn,
                 """INSERT INTO questionnaire_responses
-                   (org_id, supplier_id, tier, question_id, response_text, response_value, channel)
-                   VALUES (?, ?, 1, ?, ?, ?, 'whatsapp')""",
-                (org_id, supplier_id, question_id, answer, response_value),
+                   (org_id, supplier_id, tier, question_id, response_text, response_value,
+                    channel, validation_status, validation_notes)
+                   VALUES (?, ?, 1, ?, ?, ?, 'whatsapp', ?, ?)""",
+                (org_id, supplier_id, question_id, answer, response_value,
+                 validation_status, validation_notes),
             )
 
-        responses_found += 1
+        stored_count += 1
 
-    if responses_found > 0:
+    if stored_count > 0:
         _execute(
             conn,
             "UPDATE suppliers SET questionnaire_status = 'responded', updated_at = datetime('now') WHERE id = ?",
             (supplier_id,),
         )
         logger.info(
-            "whatsapp.questionnaire_parsed supplier=%s responses=%d",
+            "whatsapp.questionnaire_parsed supplier=%s stored=%d discarded=%d",
             supplier_id,
-            responses_found,
+            stored_count,
+            discarded_count,
         )
+
+    return {"stored_count": stored_count, "discarded_count": discarded_count}
