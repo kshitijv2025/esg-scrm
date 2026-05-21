@@ -103,3 +103,84 @@ def get_tier_questions(tier: int) -> list[Question]:
 
 def get_all_tiers() -> dict[int, list[Question]]:
     return {1: TIER1_QUESTIONS, 2: TIER2_QUESTIONS, 3: TIER3_QUESTIONS, 4: TIER4_QUESTIONS}
+
+
+@dataclass
+class QuestionnaireTemplate:
+    """Template for a tiered supplier questionnaire."""
+    template_id: str
+    name: str
+    tier: int
+    description: str = ""
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    active: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "template_id": self.template_id,
+            "name": self.name,
+            "tier": self.tier,
+            "description": self.description,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "active": self.active,
+        }
+
+
+@dataclass
+class QuestionnaireQuestion:
+    """Association between a template and a question, with ordering."""
+    question_id: str
+    template_id: str
+    sequence: int
+    required: bool = True
+    weight: float = 1.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "question_id": self.question_id,
+            "template_id": self.template_id,
+            "sequence": self.sequence,
+            "required": self.required,
+            "weight": self.weight,
+        }
+
+
+@dataclass
+class SupplierQuestionnaire:
+    """Instance of a questionnaire sent to a specific supplier."""
+    supplier_id: str
+    template_id: str
+    tier: int
+    responses: dict[str, Any] = field(default_factory=dict)
+    status: str = "pending"  # pending, sent, partially_completed, completed, expired
+    sent_at: Optional[str] = None
+    last_response_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    reminder_count: int = 0
+    preferred_channel: Optional[str] = None  # whatsapp, email, line, wechat
+
+    def add_response(self, question_id: str, value: Any) -> None:
+        self.responses[question_id] = value
+
+    def completion_pct(self) -> float:
+        tier_qs = [q.id for q in ALL_QUESTIONS if q.tier == self.tier]
+        if not tier_qs:
+            return 0.0
+        answered = sum(1 for qid in tier_qs if qid in self.responses)
+        return round(answered / len(tier_qs) * 100, 1)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "supplier_id": self.supplier_id,
+            "template_id": self.template_id,
+            "tier": self.tier,
+            "responses": self.responses,
+            "status": self.status,
+            "sent_at": self.sent_at,
+            "last_response_at": self.last_response_at,
+            "completed_at": self.completed_at,
+            "reminder_count": self.reminder_count,
+            "preferred_channel": self.preferred_channel,
+        }
