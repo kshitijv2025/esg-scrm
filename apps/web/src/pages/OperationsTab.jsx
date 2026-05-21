@@ -60,7 +60,7 @@ export default function OperationsTab({
       ) : metrics ? (
         <div className="metrics-grid">
           {CLUSTER_KEYS.map((key) => {
-            const m = metrics.metrics ? metrics.metrics[key] : null;
+            const m = metrics.clusters ? metrics.clusters[key] : null;
             if (!m) return null;
             return (
               <MetricCard

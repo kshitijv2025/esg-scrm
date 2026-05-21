@@ -194,7 +194,10 @@ def all_trends(user: dict = Depends(require_auth), skip: int = Query(0, ge=0)):
 
 @router.get("/operations-summary")
 def operations_summary(user: dict = Depends(require_auth)):
-    """Return the same shape as /dashboard/live so the frontend can use it interchangeably."""
+    """Return cluster summary for the Dashboard tab per dashboard-api.md.
+
+    Response shape: {clusters: {cluster_key: {value, unit, confidence, trend, ...}}, ...}
+    """
     org_id = user["org_id"]
     rows = fetch_metrics(org_id=org_id)
     meta = fetch_metric_metadata()
@@ -214,8 +217,11 @@ def operations_summary(user: dict = Depends(require_auth)):
         }
 
     all_valid = all(m.get("chain_valid", True) for m in metrics.values())
+    # Top-level period is the reporting period (from first metric row)
+    period = rows[0]["period"] if rows else ""
     return {
-        "metrics": metrics,
+        "clusters": metrics,
+        "period": period,
         "hash_chain_valid": all_valid,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "org_id": org_id,

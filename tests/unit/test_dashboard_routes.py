@@ -1,4 +1,5 @@
 """Tests for dashboard API routes — live metrics, trends, and alerts."""
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -14,26 +15,31 @@ def _seed_fresh_db():
     """Reset and re-seed database for every test to ensure deterministic data."""
     reset_database()
     from src.db.seed import seed
+
     seed()
 
 
 def _admin_headers() -> dict:
-    token = create_token({
-        "sub": "usr_test_001",
-        "org_id": "org_bd_001",
-        "email": "test@test.com",
-        "role": "admin",
-    })
+    token = create_token(
+        {
+            "sub": "usr_test_001",
+            "org_id": "org_bd_001",
+            "email": "test@test.com",
+            "role": "admin",
+        }
+    )
     return {"Authorization": f"Bearer {token}"}
 
 
 def _viewer_headers() -> dict:
-    token = create_token({
-        "sub": "usr_viewer_001",
-        "org_id": "org_bd_001",
-        "email": "viewer@test.com",
-        "role": "viewer",
-    })
+    token = create_token(
+        {
+            "sub": "usr_viewer_001",
+            "org_id": "org_bd_001",
+            "email": "viewer@test.com",
+            "role": "viewer",
+        }
+    )
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -64,8 +70,14 @@ class TestLiveMetrics:
         metrics = resp.json()["metrics"]
         energy = metrics.get("energy_kwh", {})
         required_fields = [
-            "value", "unit", "confidence", "trend", "source",
-            "period", "hash", "chain_valid",
+            "value",
+            "unit",
+            "confidence",
+            "trend",
+            "source",
+            "period",
+            "hash",
+            "chain_valid",
         ]
         for field in required_fields:
             assert field in energy, f"energy_kwh missing field: {field}"
@@ -179,8 +191,12 @@ class TestAlerts:
         if len(alerts) > 0:
             alert = alerts[0]
             expected_fields = [
-                "id", "metric_type", "message", "severity",
-                "triggered_at", "acknowledged",
+                "id",
+                "metric_type",
+                "message",
+                "severity",
+                "triggered_at",
+                "acknowledged",
             ]
             for field in expected_fields:
                 assert field in alert, f"Alert missing field: {field}"
@@ -217,8 +233,7 @@ class TestOperationsSummary:
         assert resp.status_code == 200
         clusters = resp.json()["clusters"]
         assert len(clusters) >= 1
-        for cluster in clusters:
-            assert "cluster" in cluster
+        for cluster_key, cluster in clusters.items():
             assert "value" in cluster
             assert "unit" in cluster
             assert "confidence" in cluster
