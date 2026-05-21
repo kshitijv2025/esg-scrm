@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
+from uuid import UUID
 
 from src.supplier.nlu_parser import ParsedResponse, ParsedAnswer, ConfidenceLevel
 
@@ -157,12 +158,14 @@ class DataPoint:
 class SupplierResponse:
     """A supplier's questionnaire response."""
 
-    supplier_id: str
-    questionnaire_id: str
-    responses: ParsedResponse
-    received_at: str
+    id: Optional[str] = None  # UUID as string, primary key
+    supplier_id: str = ""
+    questionnaire_id: str = ""
+    responses: Optional[ParsedResponse] = None
+    received_at: str = ""
     question_id: Optional[str] = None
     response_value: Optional[str] = None
+    confidence: Optional[str] = None  # ENUM HIGH, MEDIUM, LOW
     submitted_via: Optional[str] = None
     submitted_at: Optional[datetime] = None
     validated: bool = False
