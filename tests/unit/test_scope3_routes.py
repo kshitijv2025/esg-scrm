@@ -1,5 +1,7 @@
 """Tests for scope3 API routes."""
+
 import sys
+
 sys.path.insert(0, "src")
 
 from fastapi.testclient import TestClient
@@ -36,3 +38,13 @@ def test_get_scope3_completeness():
     assert "by_category" in data
     assert len(data["by_category"]) > 0
     assert 0 <= data["overall_coverage_pct"] <= 100
+    # D3.5: scope1/scope2/scope3 emissions fields
+    assert "scope1_tco2e" in data
+    assert "scope2_tco2e" in data
+    assert "scope3_tco2e" in data
+    assert isinstance(data["scope1_tco2e"], (int, float))
+    assert isinstance(data["scope2_tco2e"], (int, float))
+    assert isinstance(data["scope3_tco2e"], (int, float))
+    assert data["scope1_tco2e"] >= 0
+    assert data["scope2_tco2e"] >= 0
+    assert data["scope3_tco2e"] >= 0
