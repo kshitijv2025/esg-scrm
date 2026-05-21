@@ -6,6 +6,8 @@ Endpoints:
   GET  /predict                — batch prediction for all suppliers
   POST /train                  — submit feedback to adjust scoring weights
 """
+
+import json
 import logging
 from typing import Any
 
@@ -13,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.api.middleware.auth import require_auth
 from src.api.middleware.rbac import require_role, ADMIN_ROLES
+from src.db.database import get_connection, release_connection
 from src.ml.risk_predictor import predict_supplier_risk, batch_predict, train_weights
 
 logger = logging.getLogger(__name__)
@@ -37,7 +40,9 @@ def get_prediction(
 
     logger.info(
         "ml.predict supplier_id=%s risk_score=%s risk_level=%s",
-        supplier_id, result["risk_score"], result["risk_level"],
+        supplier_id,
+        result["risk_score"],
+        result["risk_level"],
     )
     return result
 
@@ -94,6 +99,13 @@ def post_train_feedback(
             detail="Request body must be a non-empty list of feedback entries",
         )
 
+    # D6.6: Enforce maximum batch size of 100 entries
+    if len(feedback) > 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Batch size exceeds maximum of 100 entries. Please split into smaller batches.",
+        )
+
     for i, entry in enumerate(feedback):
         if not isinstance(entry, dict):
             raise HTTPException(
@@ -111,11 +123,69 @@ def post_train_feedback(
                 detail=f"Entry at index {i}: expected_level must be one of low, medium, high, critical",
             )
 
+    old_weights = _load_current_weights()
     result = train_weights(feedback)
 
     logger.info(
         "ml.train corrections=%d total_feedback=%d",
-        result["corrections_applied"], result["total_feedback"],
+        result["corrections_applied"],
+        result["total_feedback"],
+    )
+
+    # D6.12: Log weight change to audit trail
+    _log_weight_change(
+        org_id=user["org_id"],
+        user_id=user.get("sub", ""),
+        old_weights=old_weights,
+        new_weights=result["weights"],
+        feedback_count=result["total_feedback"],
+        changed_by=user.get("email", ""),
     )
 
     return result
+
+
+def _load_current_weights() -> dict[str, float]:
+    """Load the current weights from the JSON file (before training)."""
+    from src.ml.risk_predictor import _WEIGHTS_PATH, DEFAULT_WEIGHTS
+
+    if _WEIGHTS_PATH.exists():
+        try:
+            with open(_WEIGHTS_PATH, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return DEFAULT_WEIGHTS.copy()
+
+
+def _log_weight_change(
+    org_id: str,
+    user_id: str,
+    old_weights: dict[str, float],
+    new_weights: dict[str, float],
+    feedback_count: int,
+    changed_by: str,
+) -> None:
+    """Insert a weight_changes audit row after each training call."""
+    import json
+
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            INSERT INTO weight_changes
+            (org_id, user_id, old_weights_json, new_weights_json, feedback_count, changed_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """,
+            (
+                org_id,
+                user_id,
+                json.dumps(old_weights),
+                json.dumps(new_weights),
+                feedback_count,
+                changed_by,
+            ),
+        )
+        conn.commit()
+    finally:
+        release_connection(conn)
