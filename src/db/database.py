@@ -160,6 +160,15 @@ def _migrate_sqlite() -> None:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
+        # Add plan column to organizations table
+        org_cols = {r[1] for r in conn.execute("PRAGMA table_info(organizations)").fetchall()}
+        if "plan" not in org_cols:
+            conn.execute(
+                "ALTER TABLE organizations ADD COLUMN plan TEXT NOT NULL DEFAULT 'starter'"
+            )
+        if "trial_end" not in org_cols:
+            conn.execute("ALTER TABLE organizations ADD COLUMN trial_end TEXT")
+
         # Check existing columns in users table
         cols = {r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()}
         if "token_version" not in cols:
@@ -295,6 +304,48 @@ def _migrate_sqlite() -> None:
             )
         """)
 
+        # Billing: subscriptions table for plan/subscription tracking
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id TEXT PRIMARY KEY,
+                org_id TEXT NOT NULL,
+                stripe_customer_id TEXT NOT NULL DEFAULT '',
+                stripe_subscription_id TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'inactive',
+                plan_id TEXT NOT NULL DEFAULT 'starter',
+                current_period_start TEXT,
+                current_period_end TEXT,
+                trial_end TEXT,
+                cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+        # Migrate existing subscriptions table with missing columns BEFORE creating indexes
+        sub_cols = {r[1] for r in conn.execute("PRAGMA table_info(subscriptions)").fetchall()}
+        if "stripe_customer_id" not in sub_cols:
+            conn.execute(
+                "ALTER TABLE subscriptions ADD COLUMN stripe_customer_id TEXT NOT NULL DEFAULT ''"
+            )
+        if "stripe_subscription_id" not in sub_cols:
+            conn.execute(
+                "ALTER TABLE subscriptions ADD COLUMN stripe_subscription_id TEXT NOT NULL DEFAULT ''"
+            )
+        if "current_period_start" not in sub_cols:
+            conn.execute("ALTER TABLE subscriptions ADD COLUMN current_period_start TEXT")
+        if "cancel_at_period_end" not in sub_cols:
+            conn.execute(
+                "ALTER TABLE subscriptions ADD COLUMN cancel_at_period_end INTEGER NOT NULL DEFAULT 0"
+            )
+        if "updated_at" not in sub_cols:
+            conn.execute(
+                "ALTER TABLE subscriptions ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_org ON subscriptions(org_id)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_customer ON subscriptions(stripe_customer_id)"
+        )
+
         # D1.5: Add resolved_at column to risk_flags for alert history tracking
         rf_cols = {r[1] for r in conn.execute("PRAGMA table_info(risk_flags)").fetchall()}
         if "resolved_at" not in rf_cols:
@@ -363,6 +414,189 @@ def _migrate_sqlite() -> None:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_documents_expiry ON documents(expiry_date)"
             )
+
+        # Buyer portal access table
+        if "buyer_portal_access" not in existing_tables:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS buyer_portal_access (
+                    id TEXT PRIMARY KEY,
+                    org_id TEXT NOT NULL,
+                    buyer_org_id TEXT NOT NULL DEFAULT '',
+                    buyer_org_name TEXT NOT NULL DEFAULT '',
+                    scope_filter TEXT NOT NULL DEFAULT '{}',
+                    token TEXT NOT NULL UNIQUE,
+                    token_expires TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_by TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_buyer_portal_token ON buyer_portal_access(token)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_buyer_portal_org ON buyer_portal_access(org_id)"
+            )
+
+        # ML weight changes audit table
+        if "weight_changes" not in existing_tables:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS weight_changes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    org_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    old_weights_json TEXT NOT NULL,
+                    new_weights_json TEXT NOT NULL,
+                    feedback_count INTEGER NOT NULL,
+                    changed_by TEXT NOT NULL,
+                    changed_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_weight_changes_org ON weight_changes(org_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_weight_changes_user ON weight_changes(user_id)"
+            )
+
+        # GDPR export jobs table
+        if "gdpr_export_jobs" not in existing_tables:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS gdpr_export_jobs (
+                    id TEXT PRIMARY KEY,
+                    org_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'processing',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    file_path TEXT,
+                    expires_at TEXT
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_gdpr_jobs_org ON gdpr_export_jobs(org_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_gdpr_jobs_user ON gdpr_export_jobs(user_id)"
+            )
+
+        # Notification log table
+        if "notification_log" not in existing_tables:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS notification_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    org_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    channel TEXT NOT NULL DEFAULT 'email',
+                    recipient TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    status TEXT NOT NULL DEFAULT 'sent'
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_notification_org ON notification_log(org_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_notification_user ON notification_log(user_id)"
+            )
+
+        # Phase D: Compliance calendar deadlines
+        if "compliance_deadlines" not in existing_tables:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS compliance_deadlines (
+                    id TEXT PRIMARY KEY,
+                    org_id TEXT NOT NULL,
+                    framework TEXT NOT NULL,
+                    requirement TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    deadline TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'upcoming',
+                    submission_date TEXT,
+                    evidence_required INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_compliance_deadlines_org ON compliance_deadlines(org_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_compliance_deadlines_deadline ON compliance_deadlines(deadline)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_compliance_deadlines_framework ON compliance_deadlines(framework)"
+            )
+
+        # Country risk scores
+        if "country_risk_scores" not in existing_tables:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS country_risk_scores (
+                    country_code TEXT PRIMARY KEY,
+                    country_name TEXT NOT NULL,
+                    risk_score REAL NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'Kailash Internal'
+                )
+            """)
+
+        # User-organization join table for multi-org membership
+        if "user_orgs" not in existing_tables:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_orgs (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    org_id TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'viewer',
+                    is_primary INTEGER NOT NULL DEFAULT 0,
+                    joined_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_user_orgs_user ON user_orgs(user_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_user_orgs_org ON user_orgs(org_id)")
+
+        # Phase D: Scheduled report jobs
+        if "scheduled_reports" not in existing_tables:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS scheduled_reports (
+                    id TEXT PRIMARY KEY,
+                    org_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    report_type TEXT NOT NULL,
+                    schedule TEXT NOT NULL,
+                    next_run TEXT,
+                    last_run TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    recipients TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    created_by TEXT NOT NULL
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_scheduled_reports_org ON scheduled_reports(org_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_scheduled_reports_next_run ON scheduled_reports(next_run)"
+            )
+
+        # Phase D: Webhook registrations
+        if "webhooks" not in existing_tables:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS webhooks (
+                    id TEXT PRIMARY KEY,
+                    org_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    events TEXT NOT NULL DEFAULT '[]',
+                    secret TEXT NOT NULL DEFAULT '',
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    retry_count INTEGER NOT NULL DEFAULT 0,
+                    last_triggered TEXT,
+                    last_status INTEGER,
+                    last_response TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    created_by TEXT NOT NULL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_webhooks_org ON webhooks(org_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_webhooks_events ON webhooks(events)")
 
         conn.commit()
     finally:

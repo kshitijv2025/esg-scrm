@@ -18,6 +18,7 @@ Sources:
 
 Run:  python -m src.db.seed_framework_mappings
 """
+
 from src.db.database import get_connection, release_connection, _execute
 
 # ---------------------------------------------------------------------------
@@ -28,7 +29,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
     # ======================================================================
     # energy_kwh — Energy consumption
     # ======================================================================
-
     # GRI
     (
         "energy_kwh",
@@ -51,7 +51,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "302-4",
         "Reduction of energy consumption (absolute and percentage)",
     ),
-
     # TCFD
     (
         "energy_kwh",
@@ -67,7 +66,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "Metrics and Targets b",
         "Disclose Scope 1, Scope 2, and, if appropriate, Scope 3 GHG emissions and related risks",
     ),
-
     # CSRD/ESRS
     (
         "energy_kwh",
@@ -104,7 +102,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "E1-9",
         "Anticipated financial effects from climate-related risks and opportunities",
     ),
-
     # ISSB
     (
         "energy_kwh",
@@ -120,11 +117,9 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "IFRS S2.29(b)",
         "Disclose gross Scope 3 GHG emissions if material",
     ),
-
     # ======================================================================
     # emissions_tco2 — Total GHG emissions (Scope 1+2+3)
     # ======================================================================
-
     # GRI
     (
         "emissions_tco2",
@@ -154,7 +149,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "305-4",
         "GHG emissions intensity (tonnes CO2e per unit of revenue, output, or employee)",
     ),
-
     # TCFD
     (
         "emissions_tco2",
@@ -170,7 +164,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "Metrics and Targets c",
         "Describe the targets used to manage climate-related risks and opportunities and performance against targets",
     ),
-
     # CSRD/ESRS
     (
         "emissions_tco2",
@@ -207,7 +200,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "E1-4",
         "Targets related to climate change mitigation and adaptation",
     ),
-
     # ISSB
     (
         "emissions_tco2",
@@ -230,11 +222,9 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "IFRS S2.29(c)",
         "Disclose total GHG emissions (Scope 1 + Scope 2 + Scope 3)",
     ),
-
     # ======================================================================
     # water_m3 — Water consumption
     # ======================================================================
-
     # GRI
     (
         "water_m3",
@@ -257,7 +247,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "303-5",
         "Water consumption (withdrawal minus discharge, megalitres)",
     ),
-
     # TCFD
     (
         "water_m3",
@@ -273,7 +262,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "Strategy b",
         "Describe the impact of climate-related risks on business, strategy, and financial planning",
     ),
-
     # CSRD/ESRS
     (
         "water_m3",
@@ -310,7 +298,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "E3-5",
         "Anticipated financial effects from water and marine resource-related risks",
     ),
-
     # ISSB
     (
         "water_m3",
@@ -319,11 +306,9 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "IFRS S1.26",
         "Disclose material sustainability-related risks and opportunities including water stress",
     ),
-
     # ======================================================================
     # scope3_category1 — Purchased goods & services
     # ======================================================================
-
     # GRI
     (
         "scope3_category1",
@@ -346,7 +331,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "301-3",
         "Reclaimed products and their packaging materials (percentage per product category)",
     ),
-
     # TCFD
     (
         "scope3_category1",
@@ -362,7 +346,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "Risk Management a",
         "Describe processes for identifying and assessing climate-related risks over the value chain",
     ),
-
     # CSRD/ESRS
     (
         "scope3_category1",
@@ -385,7 +368,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "E2-2",
         "Actions and resources related to pollution policies",
     ),
-
     # ISSB
     (
         "scope3_category1",
@@ -401,11 +383,9 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "IFRS S2.B14",
         "Scope 3 Category 1: Purchased goods and services (upstream)",
     ),
-
     # ======================================================================
     # scope3_category6 — Business travel
     # ======================================================================
-
     # GRI
     (
         "scope3_category6",
@@ -414,7 +394,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "305-3",
         "Other indirect (Scope 3) GHG emissions — Category 6: Business travel",
     ),
-
     # TCFD
     (
         "scope3_category6",
@@ -430,7 +409,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "Strategy a",
         "Describe climate-related risks including transition risks from business travel dependence",
     ),
-
     # CSRD/ESRS
     (
         "scope3_category6",
@@ -439,7 +417,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "E1-6",
         "Gross Scope 3 GHG emissions — includes business travel category",
     ),
-
     # ISSB
     (
         "scope3_category6",
@@ -448,11 +425,9 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "IFRS S2.29(b)",
         "Disclose gross Scope 3 GHG emissions — business travel",
     ),
-
     # ======================================================================
     # diesel_consumed — Stationary combustion
     # ======================================================================
-
     # GRI
     (
         "diesel_consumed",
@@ -468,7 +443,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "305-1",
         "Direct (Scope 1) GHG emissions from stationary combustion of diesel",
     ),
-
     # TCFD
     (
         "diesel_consumed",
@@ -484,7 +458,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "Metrics and Targets b",
         "Disclose Scope 1 GHG emissions from stationary combustion",
     ),
-
     # CSRD/ESRS
     (
         "diesel_consumed",
@@ -500,7 +473,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "E1-6",
         "Gross Scope 1 GHG emissions from stationary combustion",
     ),
-
     # ISSB
     (
         "diesel_consumed",
@@ -509,11 +481,9 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "IFRS S2.29(a)",
         "Disclose absolute gross Scope 1 GHG emissions including stationary combustion",
     ),
-
     # ======================================================================
     # waste_generated — Waste management
     # ======================================================================
-
     # GRI
     (
         "waste_generated",
@@ -536,7 +506,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "306-5",
         "Waste directed to disposal (by disposal operation, hazardous and non-hazardous)",
     ),
-
     # TCFD
     (
         "waste_generated",
@@ -545,7 +514,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "Risk Management b",
         "Describe processes for managing climate-related risks including waste-related transition risks",
     ),
-
     # CSRD/ESRS
     (
         "waste_generated",
@@ -582,7 +550,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "E5-5",
         "Resource outflows (waste generated, by type and disposal method)",
     ),
-
     # ISSB
     (
         "waste_generated",
@@ -591,11 +558,9 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "IFRS S1.26",
         "Disclose material sustainability-related risks including waste and circular economy risks",
     ),
-
     # ======================================================================
     # labor_practices — Worker safety / conditions
     # ======================================================================
-
     # GRI
     (
         "labor_practices",
@@ -667,7 +632,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "403-10",
         "Work-related ill health",
     ),
-
     # CSRD/ESRS
     (
         "labor_practices",
@@ -704,7 +668,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "S1-5",
         "Anticipated financial effects from workforce-related risks",
     ),
-
     # ISSB
     (
         "labor_practices",
@@ -713,11 +676,9 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "IFRS S1.26",
         "Disclose material sustainability-related risks including workforce health and safety risks",
     ),
-
     # ======================================================================
     # supply_chain — Supplier ESG assessment
     # ======================================================================
-
     # GRI
     (
         "supply_chain",
@@ -754,7 +715,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "204-1",
         "Proportion of spending on local suppliers",
     ),
-
     # TCFD
     (
         "supply_chain",
@@ -777,7 +737,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "Risk Management c",
         "Describe how processes for identifying, assessing, and managing climate risks are integrated into overall risk management",
     ),
-
     # CSRD/ESRS
     (
         "supply_chain",
@@ -849,7 +808,6 @@ MAPPINGS: list[tuple[str, str, str, str, str]] = [
         "G1-5",
         "Anticipated financial effects from business conduct risks",
     ),
-
     # ISSB
     (
         "supply_chain",
@@ -888,8 +846,8 @@ def seed_framework_mappings() -> None:
 
     insert_sql = """
         INSERT INTO framework_mappings
-            (cluster, metric_name, framework, disclosure_code, description)
-        VALUES (?, ?, ?, ?, ?)
+            (org_id, cluster, metric_name, framework, disclosure_code, description)
+        VALUES (?, ?, ?, ?, ?, ?)
     """
 
     count = 0
@@ -897,7 +855,7 @@ def seed_framework_mappings() -> None:
         _execute(
             conn,
             insert_sql,
-            (cluster, metric_name, framework, disclosure_code, description),
+            ("", cluster, metric_name, framework, disclosure_code, description),
         )
         count += 1
 
