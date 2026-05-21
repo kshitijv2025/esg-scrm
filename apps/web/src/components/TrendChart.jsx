@@ -7,7 +7,7 @@ export default function TrendChart({ trends, isLoading }) {
         <div className="trend-header">
           <div>
             <h3>5-Month ESG Trend</h3>
-            <p className="trend-subtitle">Energy · Emissions · Water</p>
+            <p className="trend-subtitle">Energy · Emissions · Water · Waste</p>
           </div>
           <div className="trend-legend-custom">
             <span className="legend-dot energy" />
@@ -16,6 +16,10 @@ export default function TrendChart({ trends, isLoading }) {
             Emissions
             <span className="legend-dot water" />
             Water
+            <span className="legend-dot waste" />
+            Waste
+            <span className="legend-dot incident" />
+            Incident Rate
           </div>
         </div>
         <div className="skeleton-chart" />
@@ -36,7 +40,9 @@ export default function TrendChart({ trends, isLoading }) {
   const maxEnergy = Math.max(...trends.map((t) => t.energy));
   const maxEmissions = Math.max(...trends.map((t) => t.emissions));
   const maxWater = Math.max(...trends.map((t) => t.water));
-  const maxRight = Math.max(maxEmissions, maxWater); // shared right axis for emissions + water
+  const maxWaste = Math.max(...trends.map((t) => t.waste));
+  const maxRight = Math.max(maxEmissions, maxWater, maxWaste); // shared right axis for emissions + water + waste
+  const maxIncident = Math.max(...trends.map((t) => t.incident_rate));
 
   const xOf = (i) => PADDING.left + (i / (n - 1)) * chartW;
   const yLeft = (v) => PADDING.top + chartH - (v / maxEnergy) * chartH; // energy → left axis
@@ -51,13 +57,16 @@ export default function TrendChart({ trends, isLoading }) {
   const waterPts = trends
     .map((t, i) => `${xOf(i)},${yRight(t.water)}`)
     .join(" ");
+  const wastePts = trends
+    .map((t, i) => `${xOf(i)},${yRight(t.waste)}`)
+    .join(" ");
 
   return (
     <div className="panel trend-panel">
       <div className="trend-header">
         <div>
           <h3>5-Month ESG Trend</h3>
-          <p className="trend-subtitle">Energy · Emissions · Water</p>
+          <p className="trend-subtitle">Energy · Emissions · Water · Waste</p>
         </div>
         <div className="trend-legend-custom">
           <span className="legend-dot energy" />
@@ -66,6 +75,10 @@ export default function TrendChart({ trends, isLoading }) {
           Emissions (tCO2e)
           <span className="legend-dot water" />
           Water (m³)
+          <span className="legend-dot waste" />
+          Waste (kg)
+          <span className="legend-dot incident" />
+          Incident Rate
         </div>
       </div>
       <svg
@@ -173,11 +186,40 @@ export default function TrendChart({ trends, isLoading }) {
           strokeLinejoin="round"
           strokeLinecap="round"
         />
+        {/* Incident rate bars */}
+        {trends.map((t, i) => {
+          const barMaxH = 40;
+          const barH =
+            maxIncident > 0 ? (t.incident_rate / maxIncident) * barMaxH : 0;
+          const barX = xOf(i) - 6;
+          const barY = H - 18 - barH;
+          return (
+            <rect
+              key={`bar-${i}`}
+              x={barX}
+              y={barY}
+              width="12"
+              height={barH}
+              fill="#f87171"
+              opacity="0.7"
+              rx="2"
+            />
+          );
+        })}
         {/* Water line */}
         <polyline
           points={waterPts}
           fill="none"
           stroke="#38bdf8"
+          strokeWidth="2.5"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {/* Waste line (purple) */}
+        <polyline
+          points={wastePts}
+          fill="none"
+          stroke="#a855f7"
           strokeWidth="2.5"
           strokeLinejoin="round"
           strokeLinecap="round"
@@ -227,6 +269,22 @@ export default function TrendChart({ trends, isLoading }) {
               fontWeight="600"
             >
               {(t.water / 1000).toFixed(1)}K
+            </text>
+          </g>
+        ))}
+        {/* Dots + values for waste (right axis) */}
+        {trends.map((t, i) => (
+          <g key={`wa-${i}`}>
+            <circle cx={xOf(i)} cy={yRight(t.waste)} r="4" fill="#a855f7" />
+            <text
+              x={xOf(i)}
+              y={yRight(t.waste) - 10}
+              textAnchor="middle"
+              fontSize="9"
+              fill="#a855f7"
+              fontWeight="600"
+            >
+              {(t.waste / 1000).toFixed(1)}K
             </text>
           </g>
         ))}

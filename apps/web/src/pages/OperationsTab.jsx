@@ -7,10 +7,10 @@ import RiskScoreStrip from "../components/RiskScoreStrip";
 
 /** 5 ESG clusters per D4.1 spec */
 const CLUSTER_KEYS = [
-  "energy_kwh",      // E1 — Energy
-  "water_m3",        // G6 — Water
-  "waste_kg",        // E3 — Waste
-  "incident_rate",   // S1 — Safety
+  "energy_kwh", // E1 — Energy
+  "water_m3", // G6 — Water
+  "waste_kg", // E3 — Waste
+  "incident_rate", // S1 — Safety
   "gender_diversity_ratio", // S3 — Gender
 ];
 
@@ -49,7 +49,7 @@ export default function OperationsTab({
 
       {isLoading ? (
         <div className="metrics-grid">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
+          {[1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="metric-card skeleton-card">
               <div className="skeleton-label" />
               <div className="skeleton-value" />
@@ -59,20 +59,13 @@ export default function OperationsTab({
         </div>
       ) : metrics ? (
         <div className="metrics-grid">
-          {[
-            "energy_kwh",
-            "emissions_tco2",
-            "water_m3",
-            "scope3_category1",
-            "diesel_consumed",
-            "scope3_category6",
-          ].map((key) => {
-            const m = metrics.metrics[key];
+          {CLUSTER_KEYS.map((key) => {
+            const m = metrics.metrics ? metrics.metrics[key] : null;
             if (!m) return null;
             return (
               <MetricCard
                 key={key}
-                label={METRIC_LABELS[key] || key}
+                label={CLUSTER_LABELS[key] || key}
                 value={m.value}
                 unit={m.unit}
                 confidence={m.confidence}
