@@ -2,14 +2,24 @@ import React from "react";
 import SummaryStrip from "../components/SummaryStrip";
 import MetricCard from "../components/MetricCard";
 import TrendChart from "../components/TrendChart";
+import BenchmarkCard from "../components/BenchmarkCard";
+import RiskScoreStrip from "../components/RiskScoreStrip";
 
-const METRIC_LABELS = {
-  energy_kwh: "Electricity (Scope 2)",
-  emissions_tco2: "Total Emissions (Scope 1+2)",
-  water_m3: "Water Withdrawal",
-  scope3_category1: "Purchased Goods (Scope 3)",
-  diesel_consumed: "Diesel Combustion (Scope 1)",
-  scope3_category6: "Business Travel (Scope 3)",
+/** 5 ESG clusters per D4.1 spec */
+const CLUSTER_KEYS = [
+  "energy_kwh",      // E1 — Energy
+  "water_m3",        // G6 — Water
+  "waste_kg",        // E3 — Waste
+  "incident_rate",   // S1 — Safety
+  "gender_diversity_ratio", // S3 — Gender
+];
+
+const CLUSTER_LABELS = {
+  energy_kwh: "E1 — Energy",
+  water_m3: "G6 — Water",
+  waste_kg: "E3 — Waste",
+  incident_rate: "S1 — Safety",
+  gender_diversity_ratio: "S3 — Gender",
 };
 
 export default function OperationsTab({
@@ -19,10 +29,17 @@ export default function OperationsTab({
   scope3Completeness,
   isLoading,
   showEvidence,
+  scorecard,
 }) {
   return (
     <div>
-      <div className="section-title">Live ESG Metrics — January 2025</div>
+      <div className="section-title">
+        Live ESG Metrics —{" "}
+        {new Date().toLocaleDateString("en-US", {
+          month: "long",
+          year: "numeric",
+        })}
+      </div>
 
       <SummaryStrip
         riskSummary={riskSummary}
@@ -71,6 +88,10 @@ export default function OperationsTab({
       )}
 
       <TrendChart trends={trends} isLoading={isLoading} />
+
+      <RiskScoreStrip riskSummary={riskSummary} scorecard={scorecard} />
+
+      <BenchmarkCard metrics={metrics} />
     </div>
   );
 }
