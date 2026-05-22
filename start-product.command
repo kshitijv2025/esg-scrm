@@ -1,6 +1,6 @@
 #!/bin/bash
-# ESG+SCRM Demo Launcher
-# Double-click or: open start-demo.command
+# ESG+SCRM Product Launcher
+# Double-click or: open start-product.command
 # Kills old servers, starts fresh.
 # Terminal can be closed — servers keep running.
 
@@ -11,8 +11,8 @@ FRONTEND_PORT=5173
 
 cd "$REPO_DIR"
 
-echo "ESG+SCRM Demo Launcher"
-echo "======================"
+echo "ESG+SCRM Product Launcher"
+echo "========================"
 echo ""
 echo "Starting servers..."
 
@@ -27,7 +27,7 @@ nohup .venv/bin/python -m uvicorn src.api.main:app --port $BACKEND_PORT > /tmp/e
 BACKEND_PID=$!
 echo "Backend started (PID $BACKEND_PID)"
 
-# Start frontend (vite dev with API proxy, survives terminal close via nohup)
+# Start frontend (dev server with proxy, survives terminal close via nohup)
 cd "$WEB_DIR"
 nohup ./node_modules/.bin/vite --port $FRONTEND_PORT > /tmp/esg-frontend.log 2>&1 &
 FRONTEND_PID=$!
@@ -49,14 +49,12 @@ done
 
 echo ""
 if [ "$READY" = "1" ]; then
-  echo "========================"
+  echo "========================="
   echo "All servers READY"
   echo ""
-  echo "  Dashboard:     http://localhost:$FRONTEND_PORT"
-  echo "  API Docs:     http://localhost:$BACKEND_PORT/docs"
-  echo "  API Health:   http://localhost:$BACKEND_PORT/api/health"
-  echo "  API Org:      http://localhost:$BACKEND_PORT/api/org"
-  echo "  Live Metrics: http://localhost:$BACKEND_PORT/api/dashboard/live"
+  echo "  Dashboard:  http://localhost:$FRONTEND_PORT"
+  echo "  API Docs:  http://localhost:$BACKEND_PORT/docs"
+  echo "  Demo HTML: http://localhost:$FRONTEND_PORT/demo.html"
   echo ""
   echo "  Login:     admin@textilebd.com"
   echo "  Password:  admin123"
