@@ -27,8 +27,9 @@ from fastapi.testclient import TestClient
 
 from src.api.main import app
 from src.connectors.whatsapp import WhatsAppClient, verify_webhook
-from src.db.database import get_connection, _execute, reset_database
+from src.db.database import get_connection, _execute, _fetchone, reset_database
 from src.auth.jwt import create_token
+from src.api.routes.whatsapp import _parse_questionnaire_response
 
 
 # ---------------------------------------------------------------------------
@@ -604,3 +605,303 @@ class TestUnauthenticatedRejection:
             "alert_text": "Risk",
         })
         assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# 15. Bengali / Vietnamese number parsing in questionnaire responses
+# ---------------------------------------------------------------------------
+
+
+class TestMultilangNumberParsing:
+    """WhatsApp questionnaire replies use language-aware number parsing.
+
+    Covers B4.3: ``src/ml/number_parsing.py`` must be called in the
+    WhatsApp response parsing flow for BD (Bengali) and VN (Vietnamese)
+    suppliers.
+    """
+
+    def _setup_questionnaire_flow(self, org_id, supplier_id, country_code):
+        """Insert a supplier and a minimal questionnaire template + questions.
+
+        ``country_code`` is the ISO 2-letter code (BD, VN, TH…) stored in
+        the ``suppliers.country`` column (the seed data uses ISO codes).
+        """
+        conn = get_connection()
+        _execute(conn,
+            """INSERT OR REPLACE INTO suppliers
+               (id, org_id, name, country, industry, tier,
+                annual_spend_usd, phone, preferred_channel)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (supplier_id, org_id, f"Test Supplier {country_code}",
+             country_code, "Manufacturing",
+             "tier2", 5_000_000, "+880-1712345678", "whatsapp"))
+        _execute(conn,
+            """INSERT OR REPLACE INTO questionnaire_templates
+               (id, org_id, name)
+               VALUES (?, ?, ?)""",
+            (1, org_id, "Multi-lang Test"))
+        _execute(conn,
+            """INSERT OR REPLACE INTO questionnaire_questions
+               (id, template_id, question_id, question_text, question_type, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (1, 1, "annual_spend", "Annual spend (USD)", "number", 1))
+        _execute(conn,
+            """INSERT OR REPLACE INTO whatsapp_messages
+               (org_id, supplier_id, template_id, direction, phone, body,
+                twilio_message_sid)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (org_id, supplier_id, "tpl_multilang", "outbound",
+             "+880-1712345678", "Please reply with your annual spend.",
+             "mockSID_outbound"))
+
+    def test_bengali_number_words_parsed(self, _fresh_db):
+        """Bengali number words (lakh, hazar) are parsed into correct values."""
+        org_id = "org_bd_001"
+        supplier_id = "sup_bd_test"
+        self._setup_questionnaire_flow(org_id, supplier_id, "BD")
+
+        conn = get_connection()
+        # "1 lakh 1 hazar" = 1×100000 + 1×1000 = 101,000
+        result = _parse_questionnaire_response(
+            conn,
+            supplier_id=supplier_id,
+            body_text="1. 1 lakh 1 hazar",
+            org_id=org_id,
+        )
+        assert result["stored_count"] == 1
+
+        row = _fetchone(conn,
+            "SELECT response_value FROM questionnaire_responses "
+            "WHERE supplier_id = ? AND question_id = ?",
+            (supplier_id, "q1"))
+        assert row is not None
+        assert row["response_value"] == 101_000.0
+
+    def test_bengali_digit_characters_parsed(self, _fresh_db):
+        """Bengali digit characters (০-৯) are parsed correctly."""
+        org_id = "org_bd_001"
+        supplier_id = "sup_bd_digit"
+        self._setup_questionnaire_flow(org_id, supplier_id, "BD")
+
+        conn = get_connection()
+        # ১২৩ = 123
+        result = _parse_questionnaire_response(
+            conn,
+            supplier_id=supplier_id,
+            body_text="1. ১২৩",
+            org_id=org_id,
+        )
+        assert result["stored_count"] == 1
+
+        row = _fetchone(conn,
+            "SELECT response_value FROM questionnaire_responses "
+            "WHERE supplier_id = ? AND question_id = ?",
+            (supplier_id, "q1"))
+        assert row is not None
+        assert row["response_value"] == 123.0
+
+    def test_vietnamese_number_words_parsed(self, _fresh_db):
+        """Vietnamese number words (triệu, nghìn) are parsed into correct values."""
+        org_id = "org_vn_001"
+        supplier_id = "sup_vn_test"
+        self._setup_questionnaire_flow(org_id, supplier_id, "VN")
+
+        conn = get_connection()
+        # "1.5 triệu" = 1,500,000
+        result = _parse_questionnaire_response(
+            conn,
+            supplier_id=supplier_id,
+            body_text="1. 1.5 triệu",
+            org_id=org_id,
+        )
+        assert result["stored_count"] == 1
+
+        row = _fetchone(conn,
+            "SELECT response_value FROM questionnaire_responses "
+            "WHERE supplier_id = ? AND question_id = ?",
+            (supplier_id, "q1"))
+        assert row is not None
+        assert row["response_value"] == 1_500_000.0
+
+    def test_standard_arabic_numerals_still_work(self, _fresh_db):
+        """Plain Arabic numerals (no language) continue to parse correctly."""
+        org_id = "org_bd_001"
+        supplier_id = "sup_standard"
+        self._setup_questionnaire_flow(org_id, supplier_id, "BD")
+
+        conn = get_connection()
+        result = _parse_questionnaire_response(
+            conn,
+            supplier_id=supplier_id,
+            body_text="1. 4,200,000",
+            org_id=org_id,
+        )
+        assert result["stored_count"] == 1
+
+        row = _fetchone(conn,
+            "SELECT response_value FROM questionnaire_responses "
+            "WHERE supplier_id = ? AND question_id = ?",
+            (supplier_id, "q1"))
+        assert row is not None
+        assert row["response_value"] == 4_200_000.0
+
+
+# ---------------------------------------------------------------------------
+# B4.1 — Bilingual question text columns (question_text_bn, question_text_vi)
+# ---------------------------------------------------------------------------
+
+
+class TestBilingualQuestionText:
+    """Questionnaire questions store Bengali and Vietnamese translations.
+
+    Covers B4.1: ``questionnaire_questions`` must have ``question_text_bn``
+    and ``question_text_vi`` columns for BD and VN supplier questionnaires.
+    """
+
+    def test_bn_vi_columns_exist_in_schema(self):
+        """The questionnaire_questions table has question_text_bn and question_text_vi columns."""
+        conn = get_connection()
+        rows = conn.execute(
+            "PRAGMA table_info(questionnaire_questions)"
+        ).fetchall()
+        col_names = {r["name"] for r in rows}
+        assert "question_text_bn" in col_names, f"question_text_bn missing, have: {col_names}"
+        assert "question_text_vi" in col_names, f"question_text_vi missing, have: {col_names}"
+
+    def test_bengali_question_text_stored_and_retrieved(self, _fresh_db):
+        """A question with question_text_bn can be inserted and selected."""
+        conn = get_connection()
+        _execute(conn,
+            """INSERT OR REPLACE INTO questionnaire_questions
+               (template_id, question_id, question_text, question_text_bn, question_type, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (1, "T1Q1_BN",
+             "What is your total annual energy consumption?",
+             "আপনার মোট বার্ষিক শক্তি ব্যবহার (kWh) কত?",
+             "number", 1))
+        row = _fetchone(conn,
+            "SELECT question_text_bn FROM questionnaire_questions WHERE question_id = ?",
+            ("T1Q1_BN",))
+        assert row is not None
+        assert row["question_text_bn"] == "আপনার মোট বার্ষিক শক্তি ব্যবহার (kWh) কত?"
+
+    def test_vietnamese_question_text_stored_and_retrieved(self, _fresh_db):
+        """A question with question_text_vi can be inserted and selected."""
+        conn = get_connection()
+        _execute(conn,
+            """INSERT OR REPLACE INTO questionnaire_questions
+               (template_id, question_id, question_text, question_text_vi, question_type, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (1, "T1Q1_VI",
+             "What is your total annual energy consumption?",
+             "Tổng tiêu thụ năng lượng hàng năm của bạn (kWh) là bao nhiêu?",
+             "number", 1))
+        row = _fetchone(conn,
+            "SELECT question_text_vi FROM questionnaire_questions WHERE question_id = ?",
+            ("T1Q1_VI",))
+        assert row is not None
+        assert row["question_text_vi"] == "Tổng tiêu thụ năng lượng hàng năm của bạn (kWh) là bao nhiêu?"
+
+
+# ---------------------------------------------------------------------------
+# B4.2 — Auto-language dispatch in WhatsApp questionnaire formatting
+# ---------------------------------------------------------------------------
+
+
+class TestAutoLanguageDispatch:
+    """WhatsApp questionnaire message selects translated text by supplier country.
+
+    Covers B4.2: ``_format_questionnaire`` must dispatch to Bengali
+    (question_text_bn) for BD/BGD suppliers and Vietnamese (question_text_vi)
+    for VN/VNM suppliers when those translations are available.
+    """
+
+    def test_bengali_text_selected_for_bd_supplier(self):
+        """BD supplier gets Bengali question text when text_bn is available."""
+        questions = [
+            {"question_id": "T1Q1", "text": "What is your total annual energy consumption?",
+             "text_bn": "আপনার মোট বার্ষিক শক্তি ব্যবহার (kWh) কত?", "unit": "kWh"},
+        ]
+        body = WhatsAppClient._format_questionnaire(
+            "Test Supplier", questions, "Tier 1 ESG", country_code="BD"
+        )
+        assert "আপনার মোট বার্ষিক শক্তি ব্যবহার (kWh) কত?" in body
+        assert "What is your total annual energy consumption?" not in body
+
+    def test_vietnamese_text_selected_for_vn_supplier(self):
+        """VN supplier gets Vietnamese question text when text_vi is available."""
+        questions = [
+            {"question_id": "T1Q1", "text": "What is your total annual energy consumption?",
+             "text_vi": "Tổng tiêu thụ năng lượng hàng năm của bạn (kWh) là bao nhiêu?", "unit": "kWh"},
+        ]
+        body = WhatsAppClient._format_questionnaire(
+            "Test Supplier", questions, "Tier 1 ESG", country_code="VN"
+        )
+        assert "Tổng tiêu thụ năng lượng hàng năm của bạn (kWh) là bao nhiêu?" in body
+        assert "What is your total annual energy consumption?" not in body
+
+    def test_english_fallback_when_no_translation(self):
+        """Supplier gets English text when no translation is available for their country."""
+        questions = [
+            {"question_id": "T1Q1", "text": "What is your total annual energy consumption?",
+             "unit": "kWh"},
+        ]
+        body = WhatsAppClient._format_questionnaire(
+            "Test Supplier", questions, "Tier 1 ESG", country_code="BD"
+        )
+        assert "What is your total annual energy consumption?" in body
+
+    def test_english_fallback_for_unknown_country_code(self):
+        """Unknown country code falls back to English text."""
+        questions = [
+            {"question_id": "T1Q1", "text": "What is your total annual energy consumption?",
+             "text_bn": "আপনার মোট বার্ষিক শক্তি ব্যবহার (kWh) কত?", "unit": "kWh"},
+        ]
+        body = WhatsAppClient._format_questionnaire(
+            "Test Supplier", questions, "Tier 1 ESG", country_code="US"
+        )
+        assert "What is your total annual energy consumption?" in body
+        assert "আপনার মোট বার্ষিক শক্তি ব্যবহার (kWh) কত?" not in body
+
+    def test_bgd_country_code_also_triggers_bengali(self):
+        """BGD (ISO 3166-1 alpha-3) also triggers Bengali dispatch."""
+        questions = [
+            {"question_id": "T1Q1", "text": "Energy consumption?",
+             "text_bn": "শক্তি ব্যবহার?"},
+        ]
+        body = WhatsAppClient._format_questionnaire(
+            "Test Supplier", questions, "ESG", country_code="BGD"
+        )
+        assert "শক্তি ব্যবহার?" in body
+
+    def test_vnm_country_code_also_triggers_vietnamese(self):
+        """VNM (ISO 3166-1 alpha-3) also triggers Vietnamese dispatch."""
+        questions = [
+            {"question_id": "T1Q1", "text": "Energy consumption?",
+             "text_vi": "Tiêu thụ năng lượng?"},
+        ]
+        body = WhatsAppClient._format_questionnaire(
+            "Test Supplier", questions, "ESG", country_code="VNM"
+        )
+        assert "Tiêu thụ năng lượng?" in body
+
+
+    def test_both_bilingual_columns_populated(self, _fresh_db):
+        """A question can have both bn and vi translations simultaneously."""
+        conn = get_connection()
+        _execute(conn,
+            """INSERT OR REPLACE INTO questionnaire_questions
+               (template_id, question_id, question_text, question_text_bn, question_text_vi, question_type, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (1, "T1Q1_BOTH",
+             "Annual energy consumption?",
+             "বার্ষিক শক্তি ব্যবহার?",
+             "Tiêu thụ năng lượng hàng năm?",
+             "number", 1))
+        row = _fetchone(conn,
+            "SELECT question_text, question_text_bn, question_text_vi FROM questionnaire_questions WHERE question_id = ?",
+            ("T1Q1_BOTH",))
+        assert row is not None
+        assert row["question_text"] == "Annual energy consumption?"
+        assert row["question_text_bn"] == "বার্ষিক শক্তি ব্যবহার?"
+        assert row["question_text_vi"] == "Tiêu thụ năng lượng hàng năm?"

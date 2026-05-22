@@ -1,23 +1,30 @@
 """
 Supplier API — backed by SQLite database.
 """
-from fastapi import APIRouter, Depends, HTTPException
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.api.middleware.auth import require_auth
 from src.api.middleware.rbac import require_role, VIEWER_ROLES, EDITOR_ROLES
 from src.db.database import (
-    fetch_suppliers, fetch_supplier, fetch_supplier_scope3,
-    fetch_questionnaire_responses, fetch_coverage_stats,
-    get_connection, release_connection, _fetchall,
+    fetch_suppliers,
+    fetch_supplier,
+    fetch_supplier_scope3,
+    fetch_questionnaire_responses,
+    fetch_coverage_stats,
+    get_connection,
+    release_connection,
+    _fetchall,
 )
+from src.ml.scoring import compute_esg_score, persist_score
 
 router = APIRouter()
 
 
 @router.get("/")
 def list_suppliers(
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=1000),
     user: dict = Depends(require_auth),
 ):
     org_id = user["org_id"]
@@ -51,6 +58,52 @@ def get_supplier(
     return supplier
 
 
+@router.get("/{supplier_id}/score")
+def get_supplier_score(
+    supplier_id: str,
+    user: dict = Depends(require_auth),
+):
+    """ESG score breakdown for a supplier (E/S/G dimensions + composite)."""
+    supplier = fetch_supplier(supplier_id)
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+    if supplier.get("org_id") and supplier["org_id"] != user["org_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    result = compute_esg_score(
+        supplier_id=supplier_id,
+        industry=supplier.get("industry", ""),
+        org_id=user["org_id"],
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="No questionnaire responses found for supplier")
+
+    persist_score(supplier_id, result)
+
+    return {
+        "supplier_id": result.supplier_id,
+        "composite_score": result.composite_score,
+        "risk_tier": result.risk_tier,
+        "environment": {
+            "score": result.environment.score,
+            "question_count": result.environment.question_count,
+            "contributions": result.environment.contributions,
+        },
+        "social": {
+            "score": result.social.score,
+            "question_count": result.social.question_count,
+            "contributions": result.social.contributions,
+        },
+        "governance": {
+            "score": result.governance.score,
+            "question_count": result.governance.question_count,
+            "contributions": result.governance.contributions,
+        },
+        "methodology": result.methodology,
+        "weights_used": result.weights_used,
+    }
+
+
 @router.get("/{supplier_id}/profile")
 def get_supplier_profile(
     supplier_id: str,
@@ -75,9 +128,13 @@ def get_supplier_profile(
         "risk_tier": supplier.get("risk_tier"),
         "financial_health_score": supplier.get("financial_health_score"),
         "scope3_coverage_pct": _compute_scope3_coverage(supplier, user["org_id"]),
-        "traceability_status": "full_chain" if supplier.get("questionnaire_status") == "responded" else "partial",
+        "traceability_status": "full_chain"
+        if supplier.get("questionnaire_status") == "responded"
+        else "partial",
         "active_flags": supplier.get("active_flags", 0),
-        "certifications": (supplier.get("certifications") or "").split(",") if supplier.get("certifications") else [],
+        "certifications": (supplier.get("certifications") or "").split(",")
+        if supplier.get("certifications")
+        else [],
         "clusters": clusters,
         "ml_recommendations": _generate_recommendations(supplier, clusters),
     }
@@ -123,7 +180,13 @@ def supplier_scope3(
 
 
 # Default profile scores when no questionnaire responses exist
-_DEFAULT_CLUSTERS = {"labour_rights": 0, "environment": 0, "governance": 0, "safety": 0, "gender": 0}
+_DEFAULT_CLUSTERS = {
+    "labour_rights": 0,
+    "environment": 0,
+    "governance": 0,
+    "safety": 0,
+    "gender": 0,
+}
 
 _CLUSTER_MAP = {
     "labour": "labour_rights",
@@ -166,9 +229,7 @@ def _generate_recommendations(supplier: dict, clusters: dict) -> list[str]:
     qs = supplier.get("questionnaire_status", "")
 
     if qs != "responded" and tier in ("tier2", "tier3"):
-        recs.append(
-            f"Initiate follow-up questionnaire for {tier} supplier {supplier['name']}"
-        )
+        recs.append(f"Initiate follow-up questionnaire for {tier} supplier {supplier['name']}")
     if clusters.get("labour_rights", 0) < 60:
         recs.append(
             f"Schedule third-party audit for {supplier['name']} — labour rights score below threshold"
@@ -198,13 +259,17 @@ def _get_spend_based_factor(industry: str, org_id: str) -> dict:
     """Look up spend-based emission factor from the emission_factors table."""
     conn = get_connection()
     try:
-        rows = _fetchall(conn, """
+        rows = _fetchall(
+            conn,
+            """
             SELECT factor_name, category, factor_value, unit, source
             FROM emission_factors
             WHERE category = 'scope3_spend' AND (org_id = ? OR org_id = '' OR org_id IS NULL)
             ORDER BY CASE WHEN org_id = ? THEN 0 ELSE 1 END
             LIMIT 1
-        """, (org_id, org_id))
+        """,
+            (org_id, org_id),
+        )
         if rows:
             r = rows[0]
             return {

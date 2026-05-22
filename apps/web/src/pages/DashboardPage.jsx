@@ -9,8 +9,11 @@ import SupplyChainTab from "./SupplyChainTab";
 import RiskAlertsTab from "./RiskAlertsTab";
 import FrameworksTab from "./FrameworksTab";
 import SupplierEngagementTab from "./SupplierEngagementTab";
+import TemplateBuilder from "./TemplateBuilder";
+import ReportBuilder from "./ReportBuilder";
 import EvidencePanel from "../components/EvidencePanel";
 import Header from "../components/Header";
+import TrustBadges from "../components/TrustBadges";
 
 const METRIC_KEYS = [
   "energy_kwh",
@@ -35,11 +38,13 @@ function getTabFromPath(pathname) {
   return pathname.replace("/", "");
 }
 
-export default function DashboardPage() {
+export default function DashboardPage({ locale, onLocaleChange }) {
   const [metrics, setMetrics] = useState(null);
   const [trends, setTrends] = useState(null);
   const [riskSummary, setRiskSummary] = useState(null);
   const [scope3Completeness, setScope3Completeness] = useState(null);
+  const [trustBadges, setTrustBadges] = useState({});
+  const [scorecard, setScorecard] = useState(null);
   const [selectedMetric, setSelectedMetric] = useState(null);
   const [evidence, setEvidence] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -64,16 +69,20 @@ export default function DashboardPage() {
     setIsLoading(true);
     setError(null);
     Promise.all([
-      apiFetch("/dashboard/live").then((r) => r.json()),
+      apiFetch("/dashboard/operations-summary").then((r) => r.json()),
       apiFetch("/dashboard/trends").then((r) => r.json()),
       apiFetch("/risk/summary").then((r) => r.json()),
       apiFetch("/scope3/completeness").then((r) => r.json()),
+      apiFetch("/trust/badges").then((r) => r.json()),
+      apiFetch("/risk/scorecard").then((r) => r.json()),
     ])
-      .then(([d1, d2, d3, d4]) => {
+      .then(([d1, d2, d3, d4, d5, d6]) => {
         setMetrics(d1);
         setTrends(d2.trends);
         setRiskSummary(d3);
         setScope3Completeness(d4);
+        setTrustBadges(d5.badges || {});
+        setScorecard(d6);
         setIsLoading(false);
       })
       .catch((err) => {
@@ -99,6 +108,8 @@ export default function DashboardPage() {
     trends,
     riskSummary,
     scope3Completeness,
+    trustBadges,
+    scorecard,
     isLoading,
     error,
     onRetry: loadData,
@@ -109,13 +120,16 @@ export default function DashboardPage() {
 
   return (
     <div className="app">
-      <Header />
+      <Header locale={locale} onLocaleChange={onLocaleChange} />
       <main className="app-main">
+        <TrustBadges badges={trustBadges} />
         {activeTab === "operations" && <OperationsTab {...tabProps} />}
         {activeTab === "supply-chain" && <SupplyChainTab />}
         {activeTab === "risk-alerts" && <RiskAlertsTab />}
         {activeTab === "frameworks" && <FrameworksTab />}
         {activeTab === "supplier-engagement" && <SupplierEngagementTab />}
+        {activeTab === "template-builder" && <TemplateBuilder />}
+        {activeTab === "reports" && <ReportBuilder />}
       </main>
       {evidence && (
         <EvidencePanel

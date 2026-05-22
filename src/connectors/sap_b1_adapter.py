@@ -7,9 +7,13 @@ Set ERP_MODE=live to activate real SAP connectivity.
 """
 import csv
 import os
+import logging
+import requests
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 ERP_MODE = os.environ.get("ERP_MODE", "demo")
 
@@ -34,7 +38,57 @@ class SAPBusinessOneAdapter:
         """Return connection status for health endpoint."""
         if self._demo_mode:
             return {"mode": "demo", "connected": True, "source": "CSV files"}
-        return {"mode": "live", "connected": bool(self.server_url), "source": "SAP B1 Service Layer"}
+
+        if not self.server_url:
+            return {
+                "mode": "live",
+                "connected": False,
+                "error": "SAP_B1_SERVER_URL not configured",
+                "source": "SAP B1 Service Layer",
+            }
+
+        try:
+            response = requests.get(
+                self.server_url.rstrip("/") + "/Health",
+                headers={"APIKey": self.api_key} if self.api_key else {},
+                timeout=10,
+            )
+            if response.status_code in (401, 403):
+                return {
+                    "mode": "live",
+                    "connected": False,
+                    "error": f"authentication_failed ({response.status_code})",
+                    "source": "SAP B1 Service Layer",
+                }
+            connected = response.status_code == 200
+            return {
+                "mode": "live",
+                "connected": connected,
+                "status_code": response.status_code,
+                "source": "SAP B1 Service Layer",
+            }
+        except requests.exceptions.ConnectionError:
+            return {
+                "mode": "live",
+                "connected": False,
+                "error": "connection_failed",
+                "source": "SAP B1 Service Layer",
+            }
+        except requests.exceptions.Timeout:
+            return {
+                "mode": "live",
+                "connected": False,
+                "error": "connection_timeout",
+                "source": "SAP B1 Service Layer",
+            }
+        except Exception as e:
+            logger.warning("sap_b1.health_check unexpected error: %s", str(e))
+            return {
+                "mode": "live",
+                "connected": False,
+                "error": f"health_check_failed: {type(e).__name__}",
+                "source": "SAP B1 Service Layer",
+            }
 
     def _demo_call(self, endpoint: str) -> list[dict[str, Any]]:
         """Return demo data matching SAP B1 Service Layer response shapes."""
@@ -44,11 +98,41 @@ class SAPBusinessOneAdapter:
                 return csv_data
         return []
 
+    def _live_call(self, endpoint: str) -> list[dict[str, Any]]:
+        """Make a live SAP B1 Service Layer request with graceful error handling."""
+        if not self.server_url:
+            return []
+
+        url = f"{self.server_url.rstrip('/')}/{endpoint.lstrip('/')}"
+        headers = {"APIKey": self.api_key} if self.api_key else {}
+
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            if response.status_code in (401, 403):
+                logger.warning("sap_b1.auth_failed endpoint=%s status=%s", endpoint, response.status_code)
+                return []
+            if response.status_code != 200:
+                logger.warning("sap_b1.request_failed endpoint=%s status=%s", endpoint, response.status_code)
+                return []
+            data = response.json()
+            return data.get("value", data) if isinstance(data, dict) else data
+        except requests.exceptions.ConnectionError:
+            logger.warning("sap_b1.connection_failed endpoint=%s", endpoint)
+            return []
+        except requests.exceptions.Timeout:
+            logger.warning("sap_b1.timeout endpoint=%s", endpoint)
+            return []
+        except Exception as e:
+            logger.warning("sap_b1.unexpected_error endpoint=%s error=%s", endpoint, str(e))
+            return []
+
     def get_utility_invoices(self, year: int, month: int) -> list[dict[str, Any]]:
         """
         GET /JournalEntries?$filter=U_IsInvoice eq 'tYES' and ...
         Returns energy and water invoices for the given period.
         """
+        if not self._demo_mode:
+            return self._live_call("JournalEntries?$filter=U_IsInvoice eq 'tYES'")
         return self._demo_call("utility_invoices")
 
     def get_inventory_items(self) -> list[dict[str, Any]]:
