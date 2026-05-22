@@ -18,6 +18,7 @@ def seed() -> None:
     conn = get_connection(row_factory=False)
 
     _seed_org_and_admin(conn)
+    _seed_subscriptions(conn)
     _seed_metrics_and_evidence(conn)
     _seed_risk_flags(conn)
     _seed_suppliers(conn)
@@ -63,6 +64,30 @@ def _seed_org_and_admin(conn) -> None:
             "System Administrator",
             "admin",
             1,  # email_verified
+        ),
+    )
+
+
+def _seed_subscriptions(conn) -> None:
+    """Seed an active subscription for the demo org (required by require_auth_and_subscription)."""
+    from datetime import datetime, timezone, timedelta
+
+    period_end = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+    _execute(
+        conn,
+        """
+        INSERT INTO subscriptions (id, org_id, stripe_customer_id, stripe_subscription_id, status, plan_id, current_period_start, current_period_end)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """,
+        (
+            "sub_demo_001",
+            ORG_ID,
+            "cus_demo_001",
+            "sub_demo_001",
+            "active",
+            "enterprise",
+            datetime.now(timezone.utc).isoformat(),
+            period_end,
         ),
     )
 
