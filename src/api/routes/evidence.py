@@ -1,8 +1,8 @@
 """Evidence drill-down API — investor demo with real SHA-256 verification"""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import csv
 import io
@@ -10,12 +10,56 @@ import zipfile
 import secrets
 from pathlib import Path
 from typing import Optional
+import time
 
 from src.api.middleware.auth import require_auth
+from src.api.routes.billing import require_auth_and_subscription
 from src.api.middleware.rbac import require_role, ADMIN_ROLES
 from src.db.database import get_connection, release_connection, _fetchone
 
 router = APIRouter()
+
+# ---------------------------------------------------------------------------
+# Auditor token rate limiting (brute-force protection)
+# ---------------------------------------------------------------------------
+_AUDITOR_RATE_LIMIT = 10  # max failed lookups per window
+_AUDITOR_RATE_WINDOW = 60  # seconds
+_AUDITOR_RATE_TRACKER: dict[str, tuple[int, float]] = {}  # ip -> (failures, window_end)
+
+
+def _check_auditor_rate_limit(request: Request) -> None:
+    """Raise 429 if IP has exceeded failed auditor token lookups."""
+    ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    failures, window_end = _AUDITOR_RATE_TRACKER.get(ip, (0, 0.0))
+
+    if now > window_end:
+        # Window expired, reset
+        failures = 0
+        window_end = now + _AUDITOR_RATE_WINDOW
+
+    if failures >= _AUDITOR_RATE_LIMIT:
+        raise HTTPException(
+            429,
+            "Too many failed auditor token lookups. Please try again later.",
+        )
+
+    # Advance window and record this attempt
+    _AUDITOR_RATE_TRACKER[ip] = (failures + 1, window_end)
+
+
+def _record_auditor_failure(request: Request) -> None:
+    """Record a failed auditor token lookup for rate limiting."""
+    ip = request.client.host if request.client else "unknown"
+    now = time.monotonic()
+    failures, window_end = _AUDITOR_RATE_TRACKER.get(ip, (0, 0.0))
+
+    if now > window_end:
+        failures = 0
+        window_end = now + _AUDITOR_RATE_WINDOW
+
+    _AUDITOR_RATE_TRACKER[ip] = (failures + 1, window_end)
+
 
 # Path to real CSV data
 DATA_DIR = Path(__file__).parent.parent.parent.parent / "data" / "operations"
@@ -215,7 +259,7 @@ for rec in _csv_records:
 
 
 @router.get("/drilldown/{metric_type}")
-def evidence_drilldown(metric_type: str, user: dict = Depends(require_auth)):
+def evidence_drilldown(metric_type: str, user: dict = Depends(require_auth_and_subscription)):
     """Return evidence records for metric_type in frontend-compatible shape."""
     org_id = user["org_id"]
     conn = get_connection()
@@ -289,7 +333,7 @@ def evidence_drilldown(metric_type: str, user: dict = Depends(require_auth)):
 
 
 @router.get("/verify/{metric_type}")
-def verify_chain(metric_type: str, user: dict = Depends(require_auth)):
+def verify_chain(metric_type: str, user: dict = Depends(require_auth_and_subscription)):
     """Verify the hash chain for a given metric with real SHA-256 recomputation."""
     evidence = EVIDENCE_CHAIN.get(metric_type)
     if not evidence:
@@ -317,12 +361,12 @@ def verify_chain(metric_type: str, user: dict = Depends(require_auth)):
         "hash_computed": computed_hash,
         "hash_stored": evidence["hash"],
         "match": match,
-        "verified_at": datetime.utcnow().isoformat() + "Z",
+        "verified_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
 
 
 @router.get("/full-chain/{metric_type}")
-def full_chain(metric_type: str, user: dict = Depends(require_auth)):
+def full_chain(metric_type: str, user: dict = Depends(require_auth_and_subscription)):
     """Return full lineage chain for a metric."""
     evidence = EVIDENCE_CHAIN.get(metric_type)
     if not evidence:
@@ -355,7 +399,7 @@ def full_chain(metric_type: str, user: dict = Depends(require_auth)):
 
 
 @router.get("/lineage/{data_point_id}")
-def evidence_lineage(data_point_id: str, user: dict = Depends(require_auth)):
+def evidence_lineage(data_point_id: str, user: dict = Depends(require_auth_and_subscription)):
     """Return full lineage DAG for a data point ID."""
     # Find the evidence entry that matches this data_point_id
     found_cluster = None
@@ -428,14 +472,22 @@ def evidence_lineage(data_point_id: str, user: dict = Depends(require_auth)):
 @router.post("/auditor-link")
 def create_auditor_link(
     payload: dict,
-    user: dict = Depends(require_auth),
+    user: dict = Depends(require_auth_and_subscription),
 ):
     """Create a time-limited auditor access link. Requires admin role."""
     require_role(user, ADMIN_ROLES)
-    org_id = payload.get("org_id", user.get("org_id", ""))
+    # Admin can only mint tokens for their own org — prevents cross-org token creation
+    requested_org = payload.get("org_id")
+    if requested_org is not None and requested_org != user.get("org_id"):
+        raise HTTPException(403, "Cannot create auditor link for another organization")
+    org_id = requested_org or user.get("org_id", "")
     expires_hours = payload.get("expires_hours", 24)
     token = secrets.token_urlsafe(32)
-    expires_at = (datetime.utcnow() + timedelta(hours=expires_hours)).isoformat() + "Z"
+    expires_at = (
+        (datetime.now(timezone.utc) + timedelta(hours=expires_hours))
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
     created_by = user.get("sub", "")
     conn = get_connection()
     try:
@@ -459,8 +511,9 @@ def create_auditor_link(
 
 
 @router.get("/auditor/{token}")
-def auditor_access(token: str):
-    """Access evidence with auditor token. No additional auth required."""
+def auditor_access(request: Request, token: str):
+    """Access evidence with auditor token. No additional auth required. Rate-limited."""
+    _check_auditor_rate_limit(request)
     conn = get_connection()
     try:
         row = conn.execute(
@@ -468,8 +521,12 @@ def auditor_access(token: str):
             (token,),
         ).fetchone()
         if not row:
+            _record_auditor_failure(request)
             return JSONResponse({"detail": "auditor token not found"}, status_code=404)
-        if datetime.utcnow().isoformat() + "Z" > row["expires_at"]:
+        if datetime.now(timezone.utc) > datetime.fromisoformat(
+            row["expires_at"].replace("Z", "+00:00")
+        ):
+            _record_auditor_failure(request)
             return JSONResponse({"detail": "auditor token has expired"}, status_code=410)
 
         org_id = row["org_id"]
@@ -501,7 +558,7 @@ ALLOWED_FRAMEWORKS = {"ghg_protocol", "esrs", "csrd", "gri", "tcfd", "issb"}
 def export_evidence(
     period: str = Query(..., description="Period in YYYY-MM-DD_YYYY-MM-DD format"),
     framework: str = Query(..., description="Framework name (e.g. ghg_protocol, esrs)"),
-    user: dict = Depends(require_auth),
+    user: dict = Depends(require_auth_and_subscription),
 ):
     """Export evidence package as a zip file for a given period and framework."""
     if framework not in ALLOWED_FRAMEWORKS:
