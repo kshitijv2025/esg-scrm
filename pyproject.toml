@@ -37,6 +37,10 @@ dependencies = [
     "bcrypt>=4.0.0",
     # Error monitoring
     "sentry-sdk>=2.0.0",
+    # Structured logging
+    "structlog>=25.0",
+    # Form data parsing
+    "python-multipart>=0.0.9",
     # Utilities
     "python-dotenv>=1.0.0",
     "fpdf2>=2.7.0",
