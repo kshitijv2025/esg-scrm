@@ -1,21 +1,24 @@
 """ESG Report PDF generation - detailed investor-grade report"""
+
 import re
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from datetime import datetime
 from fpdf import FPDF
 
 from src.api.middleware.auth import require_auth
 from src.api.routes.frameworks import FRAMEWORK_OUTPUTS
-from src.db.database import fetch_metrics, fetch_trends, fetch_risk_flags
+from src.db.database import fetch_metrics, fetch_trends, fetch_risk_flags, fetch_metric_metadata
 
 
 # Dynamic data loaders — replaces old module-level constants
 def _get_metrics(org_id: str = ""):
     """Fetch metrics and build display dict matching old METRICS shape."""
     from src.api.routes.dashboard import _build_metric_display
+
     rows = fetch_metrics(org_id=org_id)
-    return {row["cluster"]: _build_metric_display(row) for row in rows}
+    meta = fetch_metric_metadata()
+    return {row["cluster"]: _build_metric_display(row, meta) for row in rows}
 
 
 def _get_trend_data(org_id: str = ""):
@@ -24,11 +27,17 @@ def _get_trend_data(org_id: str = ""):
     for cluster in ("energy_kwh", "emissions_tco2", "water_m3"):
         rows = fetch_trends(cluster, org_id=org_id)
         month_names = {
-            "2024-09": "Sep 2024", "2024-10": "Oct 2024", "2024-11": "Nov 2024",
-            "2024-12": "Dec 2024", "2025-01": "Jan 2025",
+            "2024-09": "Sep 2024",
+            "2024-10": "Oct 2024",
+            "2024-11": "Nov 2024",
+            "2024-12": "Dec 2024",
+            "2025-01": "Jan 2025",
         }
         result[cluster] = [
-            {"month": month_names.get(r["recorded_at"][:7], r["recorded_at"][:7]), "value": r["value"]}
+            {
+                "month": month_names.get(r["recorded_at"][:7], r["recorded_at"][:7]),
+                "value": r["value"],
+            }
             for r in rows
         ]
     return result
@@ -52,21 +61,22 @@ def _get_alerts(org_id: str = ""):
         for f in flags
     ]
 
+
 router = APIRouter()
 
 # ── Colour palette ──────────────────────────────────────────────────────────────
 # Light theme: white backgrounds, dark text
-DARK_BG   = (255, 255, 255)   # white (was near-black)
-SURFACE   = (245, 245, 245)   # light grey (cards/sections)
-SURFACE2  = (238, 238, 238)   # slightly darker grey (alternating rows)
-BORDER    = (200, 200, 200)   # border colour
-GREEN     = ( 15, 100,  40)   # dark green accent
-GREEN_DIM = ( 60, 130,  80)   # medium green
-RED       = (180,  30,  30)   # dark red accent
-AMBER     = (180, 120,   0)   # dark amber accent
-TEXT      = ( 20,  20,  20)   # near-black text (primary)
-TEXT_DIM  = (100, 100, 100)   # medium grey (secondary)
-WHITE     = (255, 255, 255)   # pure white
+DARK_BG = (255, 255, 255)  # white (was near-black)
+SURFACE = (245, 245, 245)  # light grey (cards/sections)
+SURFACE2 = (238, 238, 238)  # slightly darker grey (alternating rows)
+BORDER = (200, 200, 200)  # border colour
+GREEN = (15, 100, 40)  # dark green accent
+GREEN_DIM = (60, 130, 80)  # medium green
+RED = (180, 30, 30)  # dark red accent
+AMBER = (180, 120, 0)  # dark amber accent
+TEXT = (20, 20, 20)  # near-black text (primary)
+TEXT_DIM = (100, 100, 100)  # medium grey (secondary)
+WHITE = (255, 255, 255)  # pure white
 
 
 def _u(s):
@@ -90,9 +100,12 @@ class ESGReportPDF(FPDF):
         self.set_y(-15)
         self.set_font("Helvetica", "I", 7)
         self.set_text_color(*TEXT_DIM)
-        self.cell(0, 8,
-                  _u("ESG Supply Chain Intelligence  |  Confidential  |  Page ") + str(self.page_no()),
-                  align="C")
+        self.cell(
+            0,
+            8,
+            _u("ESG Supply Chain Intelligence  |  Confidential  |  Page ") + str(self.page_no()),
+            align="C",
+        )
 
 
 def build_pdf(org_id: str = ""):
@@ -147,7 +160,10 @@ def _render_cover(pdf, METRICS, ALERTS):
     pdf.set_xy(28, pdf.get_y() + 2)
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(*TEXT_DIM)
-    period = "Period: January 2025  |  Prepared for: H&M  |  Generated: " + datetime.utcnow().strftime("%d %B %Y")
+    period = (
+        "Period: January 2025  |  Prepared for: H&M  |  Generated: "
+        + datetime.utcnow().strftime("%d %B %Y")
+    )
     pdf.cell(0, 6, _u(period), ln=True)
     pdf.ln(16)
 
@@ -167,12 +183,12 @@ def _render_cover(pdf, METRICS, ALERTS):
     pdf.ln(4)
 
     # Pull live values from backend data
-    risk_total  = len(ALERTS)
+    risk_total = len(ALERTS)
     risk_broken = sum(1 for a in ALERTS if a["severity"] == "warning")
     risk_accent = RED if risk_broken > 0 else (AMBER if risk_total > 3 else GREEN)
 
     # Build Scope 1+2+3 sum
-    s1 = METRICS.get("emissions_tco2", {}).get("value", 0)   # Scope 1+2
+    s1 = METRICS.get("emissions_tco2", {}).get("value", 0)  # Scope 1+2
     s3a = METRICS.get("scope3_category1", {}).get("value", 0)  # Scope 3 Cat 1
     s3b = METRICS.get("scope3_category6", {}).get("value", 0)  # Scope 3 Cat 6
     total_co2e = s1 + s3a + s3b
@@ -180,13 +196,19 @@ def _render_cover(pdf, METRICS, ALERTS):
     diesel = METRICS.get("diesel_consumed", {})
     diesel_broken = diesel.get("chain_valid", True) is False
 
-    _kpi_card(pdf, 0, "Active Risk Flags",   str(risk_total),   "Avg 12d open",              risk_accent)
-    _kpi_card(pdf, 1, "Scope 3 Completeness", "61%",           "48/78 suppliers responded",  GREEN)
-    _kpi_card(pdf, 2, "Scope 1+2+3 Emissions", f"{total_co2e:,.1f} tCO2e", "All scopes combined", RED)
-    _kpi_card(pdf, 3, "Diesel Chain",
-              f"{diesel.get('value', 0):.1f} tCO2e",
-              "BROKEN - manual entry" if diesel_broken else "INTACT",
-              RED if diesel_broken else GREEN)
+    _kpi_card(pdf, 0, "Active Risk Flags", str(risk_total), "Avg 12d open", risk_accent)
+    _kpi_card(pdf, 1, "Scope 3 Completeness", "61%", "48/78 suppliers responded", GREEN)
+    _kpi_card(
+        pdf, 2, "Scope 1+2+3 Emissions", f"{total_co2e:,.1f} tCO2e", "All scopes combined", RED
+    )
+    _kpi_card(
+        pdf,
+        3,
+        "Diesel Chain",
+        f"{diesel.get('value', 0):.1f} tCO2e",
+        "BROKEN - manual entry" if diesel_broken else "INTACT",
+        RED if diesel_broken else GREEN,
+    )
     pdf.ln(6)
 
     # ── Hash chain integrity ─────────────────────────────────────────────────
@@ -243,11 +265,16 @@ def _render_cover(pdf, METRICS, ALERTS):
     pdf.set_xy(28, y0 + 5)
     pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(*TEXT_DIM)
-    pdf.multi_cell(154, 4.5, _u(
-        "Every record carries a SHA-256 hash incorporating the previous record's hash, "
-        "creating a tamper-evident ledger.  Source: SAP Business One  |  "
-        "Calculation: IEA 2023 / GHG Protocol 2022 Emission Factors"
-    ), ln=True)
+    pdf.multi_cell(
+        154,
+        4.5,
+        _u(
+            "Every record carries a SHA-256 hash incorporating the previous record's hash, "
+            "creating a tamper-evident ledger.  Source: SAP Business One  |  "
+            "Calculation: IEA 2023 / GHG Protocol 2022 Emission Factors"
+        ),
+        ln=True,
+    )
 
 
 # ── Metrics page ──────────────────────────────────────────────────────────────
@@ -260,25 +287,31 @@ def _render_metrics_page(pdf, METRICS, TREND_DATA):
     pdf.ln(3)
 
     headers = ["#", "Metric", "Value", "Scope", "Confidence", "Method", "Chain"]
-    widths  = [8, 52, 32, 22, 22, 26, 8]
+    widths = [8, 52, 32, 22, 22, 26, 8]
     _row_header(pdf, headers, widths)
     pdf.ln(1)
 
     scope_map = {
-        "energy_kwh":       "Scope 2",
-        "emissions_tco2":   "Scope 1+2",
-        "water_m3":         "Environmental",
+        "energy_kwh": "Scope 2",
+        "emissions_tco2": "Scope 1+2",
+        "water_m3": "Environmental",
         "scope3_category1": "Scope 3 Cat 1",
-        "diesel_consumed":  "Scope 1",
+        "diesel_consumed": "Scope 1",
     }
     labels_map = {
-        "energy_kwh":       "Electricity",
-        "emissions_tco2":   "Total Emissions",
-        "water_m3":         "Water Withdrawal",
+        "energy_kwh": "Electricity",
+        "emissions_tco2": "Total Emissions",
+        "water_m3": "Water Withdrawal",
         "scope3_category1": "Purchased Goods",
-        "diesel_consumed":  "Diesel Combustion",
+        "diesel_consumed": "Diesel Combustion",
     }
-    display_order = ["energy_kwh", "emissions_tco2", "water_m3", "scope3_category1", "diesel_consumed"]
+    display_order = [
+        "energy_kwh",
+        "emissions_tco2",
+        "water_m3",
+        "scope3_category1",
+        "diesel_consumed",
+    ]
 
     for i, key in enumerate(display_order, 1):
         m = METRICS.get(key)
@@ -304,9 +337,9 @@ def _render_metrics_page(pdf, METRICS, TREND_DATA):
 
     months = ["Sep '24", "Oct '24", "Nov '24", "Dec '24", "Jan '25"]
     trend_keys = [
-        ("energy_kwh",     "Electricity (kWh)",  "kWh"),
-        ("emissions_tco2", "Emissions (tCO2e)",  "tCO2e"),
-        ("water_m3",       "Water (m3)",         "m3"),
+        ("energy_kwh", "Electricity (kWh)", "kWh"),
+        ("emissions_tco2", "Emissions (tCO2e)", "tCO2e"),
+        ("water_m3", "Water (m3)", "m3"),
     ]
     col_w = 170.0 / (len(months) + 1)
     row_h = 7
@@ -349,10 +382,28 @@ def _render_metrics_page(pdf, METRICS, TREND_DATA):
     _section_title(pdf, "GHG Protocol Scope Summary")
     pdf.ln(2)
 
+    _scope3_val = METRICS.get("scope3_category1", {}).get("value", 0) + METRICS.get(
+        "scope3_category6", {}
+    ).get("value", 0)
     scope_data = [
-        ("Scope 1 — Direct Emissions",     f"{diesel.get('value', 0):.1f} tCO2e",  "Diesel combustion",         RED),
-        ("Scope 2 — Indirect (Electricity)", f"{METRICS.get('emissions_tco2',{}).get('value',0):.1f} tCO2e", "Purchased electricity", AMBER),
-        ("Scope 3 — Value Chain",          f"{(METRICS.get('scope3_category1',{}).get('value',0)+METRICS.get('scope3_category6',{}).get('value',0)):.1f} tCO2e", "Purchased goods + travel", AMBER),
+        (
+            "Scope 1 — Direct Emissions",
+            f"{diesel.get('value', 0):.1f} tCO2e",
+            "Diesel combustion",
+            RED,
+        ),
+        (
+            "Scope 2 — Indirect (Electricity)",
+            f"{METRICS.get('emissions_tco2', {}).get('value', 0):.1f} tCO2e",
+            "Purchased electricity",
+            AMBER,
+        ),
+        (
+            "Scope 3 — Value Chain",
+            f"{_scope3_val:.1f} tCO2e",
+            "Purchased goods + travel",
+            AMBER,
+        ),
     ]
     for label, value, note, color in scope_data:
         pdf.set_fill_color(*SURFACE)
@@ -389,12 +440,17 @@ def _render_metrics_page(pdf, METRICS, TREND_DATA):
         pdf.set_xy(28, y0 + 5)
         pdf.set_font("Helvetica", "", 9)
         pdf.set_text_color(*TEXT_DIM)
-        pdf.multi_cell(154, 5, _u(
-            "The Diesel Consumed (Scope 1) metric has a broken hash chain. "
-            "This is a deliberate demo state showing what happens when manual entry data "
-            "is altered after submission. In production, this alert fires immediately "
-            "and the record is quarantined pending re-verification."
-        ), ln=True)
+        pdf.multi_cell(
+            154,
+            5,
+            _u(
+                "The Diesel Consumed (Scope 1) metric has a broken hash chain. "
+                "This is a deliberate demo state showing what happens when manual entry data "
+                "is altered after submission. In production, this alert fires immediately "
+                "and the record is quarantined pending re-verification."
+            ),
+            ln=True,
+        )
 
         pdf.set_xy(28, y0 + 14)
         pdf.set_font("Helvetica", "I", 8)
@@ -419,8 +475,8 @@ def _render_risk_alerts(pdf, ALERTS):
     pdf.ln(3)
 
     for alert in ALERTS:
-        sev  = RED   if alert["severity"] == "warning" else AMBER
-        bg   = SURFACE
+        sev = RED if alert["severity"] == "warning" else AMBER
+        bg = SURFACE
 
         pdf.set_fill_color(*bg)
         pdf.set_draw_color(*sev)
@@ -431,7 +487,12 @@ def _render_risk_alerts(pdf, ALERTS):
         pdf.set_xy(28, y0)
         pdf.set_font("Helvetica", "B", 9)
         pdf.set_text_color(*sev)
-        pdf.cell(0, 5, _u(f"[{alert['severity'].upper()}]  {alert['metric_type'].replace('_', ' ').title()}"), ln=True)
+        pdf.cell(
+            0,
+            5,
+            _u(f"[{alert['severity'].upper()}]  {alert['metric_type'].replace('_', ' ').title()}"),
+            ln=True,
+        )
 
         pdf.set_xy(28, y0 + 5)
         pdf.set_font("Helvetica", "", 8)
@@ -441,11 +502,16 @@ def _render_risk_alerts(pdf, ALERTS):
         pdf.set_xy(28, y0 + 9.5)
         pdf.set_font("Helvetica", "I", 7.5)
         pdf.set_text_color(*TEXT_DIM)
-        pdf.cell(0, 4.5, _u(
-            f"Actual: {alert.get('actual_value','—')}  |  "
-            f"Threshold: {alert.get('threshold','—')}  |  "
-            f"Triggered: {alert.get('triggered_at','—')[:10]}"
-        ), ln=True)
+        pdf.cell(
+            0,
+            4.5,
+            _u(
+                f"Actual: {alert.get('actual_value', '—')}  |  "
+                f"Threshold: {alert.get('threshold', '—')}  |  "
+                f"Triggered: {alert.get('triggered_at', '—')[:10]}"
+            ),
+            ln=True,
+        )
         pdf.ln(8)
 
     pdf.ln(4)
@@ -472,9 +538,9 @@ def _render_frameworks(pdf, METRICS):
     pdf.ln(3)
 
     fw_blocks = [
-        ("energy_kwh",       "Electricity Consumption",         "energy_kwh",       GREEN),
-        ("scope3_cat1_4281","Scope 3 Cat 1 — Purchased Goods","scope3_category1", GREEN),
-        ("diesel_consumed", "Diesel Combustion — Scope 1",   "diesel_consumed",  AMBER),
+        ("energy_kwh", "Electricity Consumption", "energy_kwh", GREEN),
+        ("scope3_cat1_4281", "Scope 3 Cat 1 — Purchased Goods", "scope3_category1", GREEN),
+        ("diesel_consumed", "Diesel Combustion — Scope 1", "diesel_consumed", AMBER),
     ]
     for fw_key, label, metric_key, color in fw_blocks:
         _framework_block(pdf, fw_key, label, metric_key, color, METRICS)
@@ -497,19 +563,29 @@ def _render_frameworks(pdf, METRICS):
     pdf.set_xy(28, y0 + 5)
     pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(*TEXT_DIM)
-    pdf.multi_cell(154, 4.5, _u(
-        "The hash chain proves no post-submission tampering. Each record's hash incorporates "
-        "the previous record's hash, creating a tamper-evident ledger. "
-        "Diesel Consumed shows a broken chain — this is a deliberate demo state."
-    ), ln=True)
+    pdf.multi_cell(
+        154,
+        4.5,
+        _u(
+            "The hash chain proves no post-submission tampering. Each record's hash incorporates "
+            "the previous record's hash, creating a tamper-evident ledger. "
+            "Diesel Consumed shows a broken chain — this is a deliberate demo state."
+        ),
+        ln=True,
+    )
 
     pdf.set_xy(28, pdf.get_y() + 1)
     pdf.set_font("Helvetica", "I", 7.5)
     pdf.set_text_color(*TEXT_DIM)
-    pdf.cell(0, 5, _u(
-        "Source: SAP Business One  |  Calculation: IEA 2023 Emission Factors  |  "
-        "Frameworks: CSRD, ISSB, GRI, TCFD"
-    ), ln=True)
+    pdf.cell(
+        0,
+        5,
+        _u(
+            "Source: SAP Business One  |  Calculation: IEA 2023 Emission Factors  |  "
+            "Frameworks: CSRD, ISSB, GRI, TCFD"
+        ),
+        ln=True,
+    )
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -549,9 +625,9 @@ def _kv(pdf, key, value):
 
 def _kpi_card(pdf, i, label, value, sub, color):
     """Draw a single KPI card at position i (0-based)."""
-    w  = 170.0 / 4
-    cx = 20 + i * w          # left edge of this card
-    cy = pdf.get_y()         # current y (top of card)
+    w = 170.0 / 4
+    cx = 20 + i * w  # left edge of this card
+    cy = pdf.get_y()  # current y (top of card)
     card_h = 30
 
     # Card background with coloured left accent strip
@@ -585,7 +661,7 @@ def _kpi_card(pdf, i, label, value, sub, color):
 
 
 def _metrics_table_header(pdf):
-    cols    = [("Metric", 44), ("Value", 32), ("Confidence", 22), ("Method", 38), ("Chain", 20)]
+    cols = [("Metric", 44), ("Value", 32), ("Confidence", 22), ("Method", 38), ("Chain", 20)]
     x_start = 20
     pdf.set_fill_color(*SURFACE)
     pdf.set_font("Helvetica", "B", 8)
@@ -600,28 +676,28 @@ def _metrics_table_header(pdf):
 
 def _metrics_table_row(pdf, key, m):
     labels = {
-        "energy_kwh":       "Electricity (Scope 2)",
-        "emissions_tco2":   "Total Emissions (Scope 1+2)",
-        "water_m3":         "Water Withdrawal",
+        "energy_kwh": "Electricity (Scope 2)",
+        "emissions_tco2": "Total Emissions (Scope 1+2)",
+        "water_m3": "Water Withdrawal",
         "scope3_category1": "Purchased Goods (Scope 3)",
-        "diesel_consumed":  "Diesel Combustion (Scope 1)",
+        "diesel_consumed": "Diesel Combustion (Scope 1)",
         "scope3_category6": "Business Travel (Scope 3)",
     }
     conf_colors = {"HIGH": GREEN, "MEDIUM": AMBER, "LOW": RED}
     chain_ok = m.get("chain_valid", True)
     conf_color = conf_colors.get(m.get("confidence", "MEDIUM"), TEXT_DIM)
 
-    value_str  = f"{m['value']:,} {m.get('unit', '')}"
+    value_str = f"{m['value']:,} {m.get('unit', '')}"
     method_str = m.get("calculation_method", "-").replace("_", " ").title()
-    chain_str  = "INTACT" if chain_ok else "BROKEN"
-    conf_str   = m.get("confidence", "—")
+    chain_str = "INTACT" if chain_ok else "BROKEN"
+    conf_str = m.get("confidence", "—")
 
     cols = [
         (labels.get(key, key), 44),
-        (value_str,            32),
-        (conf_str,             22),
-        (method_str,           38),
-        (chain_str,            20),
+        (value_str, 32),
+        (conf_str, 22),
+        (method_str, 38),
+        (chain_str, 20),
     ]
     x = 20
     fill = True
@@ -685,7 +761,7 @@ def _data_row(pdf, row, widths, fill=False, chain_broken=False):
 
 def _framework_block(pdf, fw_key, metric_label, metric_key, accent_color, METRICS):
     fw_data = FRAMEWORK_OUTPUTS.get(fw_key, {})
-    metric   = METRICS.get(metric_key, {})
+    metric = METRICS.get(metric_key, {})
 
     pdf.set_fill_color(*SURFACE)
     pdf.set_draw_color(*BORDER)
@@ -712,10 +788,10 @@ def _framework_block(pdf, fw_key, metric_label, metric_key, accent_color, METRIC
     # Framework tags
     fw_names = {
         "csrd_esrs_e1": "CSRD / ESRS E1",
-        "issb_ifrs_s2":  "ISSB / IFRS S2",
-        "gri_302_1":    "GRI 302-1",
-        "gri_305_1":    "GRI 305-1",
-        "gri_305_3":    "GRI 305-3",
+        "issb_ifrs_s2": "ISSB / IFRS S2",
+        "gri_302_1": "GRI 302-1",
+        "gri_305_1": "GRI 305-1",
+        "gri_305_3": "GRI 305-3",
         "tcfd_metrics": "TCFD",
     }
     y = pdf.get_y() + 1
@@ -735,6 +811,44 @@ def _framework_block(pdf, fw_key, metric_label, metric_key, accent_color, METRIC
     pdf.ln(6)
 
 
+@router.get("/pdf")
+def pdf_report(
+    framework: str = Query(default="", description="Reporting framework (gri, tcfd, csrd, issb)"),
+    period: str = Query(default="", description="Reporting period as YYYY-MM-DD_YYYY-MM-DD"),
+    user: dict = Depends(require_auth),
+):
+    """Stream a PDF report scoped to the user's org."""
+    _VALID_FRAMEWORKS = {"gri", "tcfd", "csrd", "issb"}
+    if framework and framework.lower() not in _VALID_FRAMEWORKS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"framework must be one of: {', '.join(sorted(_VALID_FRAMEWORKS))}",
+        )
+    if period:
+        import re
+
+        date_pattern = r"^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$"
+        if not re.match(date_pattern, period):
+            raise HTTPException(
+                status_code=400,
+                detail="period must match format YYYY-MM-DD_YYYY-MM-DD",
+            )
+        # Validate date components
+        parts = period.split("_")
+        start_parts = parts[0].split("-")
+        end_parts = parts[1].split("-")
+        try:
+            _sy, sm, sd = int(start_parts[0]), int(start_parts[1]), int(start_parts[2])
+            _ey, em, ed = int(end_parts[0]), int(end_parts[1]), int(end_parts[2])
+            if not (1 <= sm <= 12 and 1 <= em <= 12):
+                raise ValueError("Invalid month")
+            if not (1 <= sd <= 31 and 1 <= ed <= 31):
+                raise ValueError("Invalid day")
+        except (ValueError, IndexError):
+            raise HTTPException(status_code=400, detail="Invalid date")
+    return esg_report(user)
+
+
 @router.get("/esg-pdf")
 def esg_report(user: dict = Depends(require_auth)):
     """Stream a 4-page detailed ESG PDF report scoped to the user's org."""
@@ -745,7 +859,7 @@ def esg_report(user: dict = Depends(require_auth)):
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f"attachment; filename=\"{filename}\"",
+            "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Length": str(len(pdf_bytes)),
         },
     )

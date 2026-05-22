@@ -8,8 +8,7 @@ from fastapi.testclient import TestClient
 
 from src.api.main import app
 from src.auth.jwt import create_token
-from src.db.database import reset_database, get_connection, _execute, _fetchone
-
+from src.db.database import reset_database
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -437,6 +436,46 @@ class TestComplianceReport:
         assert resp.status_code == 200
 
 
+class TestFrameworkPDFReport:
+    """GET /api/reports/pdf"""
+
+    def test_pdf_requires_auth(self):
+        unauthed = TestClient(app)
+        resp = unauthed.get("/api/reports/pdf?framework=gri&period=2024-01-01_2024-12-31")
+        assert resp.status_code == 401
+
+    def test_pdf_with_valid_framework_and_period(self, client):
+        resp = client.get("/api/reports/pdf?framework=gri&period=2024-01-01_2024-12-31")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/pdf"
+        # Valid PDFs start with %PDF-
+        assert resp.content[:4] == b"%PDF"
+
+    def test_pdf_accepts_all_valid_frameworks(self, client):
+        for fw in ("gri", "tcfd", "csrd", "issb"):
+            resp = client.get(f"/api/reports/pdf?framework={fw}&period=2024-01-01_2024-12-31")
+            assert resp.status_code == 200, f"Framework '{fw}' should be accepted"
+
+    def test_pdf_with_invalid_framework(self, client):
+        resp = client.get("/api/reports/pdf?framework=invalid_xyz&period=2024-01-01_2024-12-31")
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert "framework must be one of" in detail
+
+    def test_pdf_with_invalid_period_format(self, client):
+        resp = client.get("/api/reports/pdf?framework=gri&period=2024-13-01_2024-12-31")
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert "Invalid date" in detail
+
+    def test_pdf_with_missing_underscore_in_period(self, client):
+        # period with no underscore triggers the "must be YYYY-MM-DD_YYYY-MM-DD" error
+        resp = client.get("/api/reports/pdf?framework=gri&period=20240101-20241231")
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert "YYYY-MM-DD_YYYY-MM-DD" in detail
+
+
 # ===================================================================
 # Cross-org isolation tests
 # ===================================================================
@@ -493,7 +532,7 @@ class TestTemplateOrgIsolation:
                 "questions": [{"question_id": "q1", "text": "Q1?"}],
             },
         )
-        template_id = create_resp.json()["id"]
+        create_resp.json()["id"]
 
         # Note: GET /templates/{id} does not filter by org (it checks is_active only).
         # This is by design — template IDs are not guessable, and org scoping

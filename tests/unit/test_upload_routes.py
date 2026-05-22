@@ -5,7 +5,6 @@ Security focus: upload endpoints extract org_id from the authenticated user's
 JWT token, NOT from form fields. This test suite verifies that tenant isolation
 is enforced through the auth dependency.
 """
-import io
 
 import pytest
 from fastapi.testclient import TestClient
@@ -40,15 +39,14 @@ def auth():
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _csv_bytes(header: str, rows: list[str]) -> bytes:
     """Build a UTF-8 CSV byte payload from a header line and data rows."""
     lines = [header] + rows
     return "\n".join(lines).encode("utf-8")
 
 
-SUPPLIER_HEADER = (
-    "name,country,industry,tier,annual_spend_usd,phone,preferred_channel,certifications"
-)
+SUPPLIER_HEADER = "name,country,industry,tier,annual_spend_usd,phone,email"
 EMISSION_HEADER = "factor_name,category,value,unit,country_code,source,year"
 CERT_HEADER = "supplier_id,certification_name,issued_by,valid_from,valid_to"
 
@@ -66,8 +64,8 @@ class TestUploadSuppliers:
         payload = _csv_bytes(
             SUPPLIER_HEADER,
             [
-                "Acme Corp,BD,Textiles,tier1,500000,+8801x,whatsapp,ISO9001",
-                "Beta Ltd,IN,Chemicals,tier2,250000,+911x,email,",
+                "Acme Corp,BD,Textiles,tier1,500000,+8801x,acme@example.com",
+                "Beta Ltd,IN,Chemicals,tier2,250000,+911x,betap@example.com",
             ],
         )
 
@@ -101,7 +99,7 @@ class TestUploadSuppliers:
         """Posting suppliers without a JWT returns 401."""
         payload = _csv_bytes(
             SUPPLIER_HEADER,
-            ["Acme Corp,BD,Textiles,tier1,500000,+8801x,whatsapp,ISO9001"],
+            ["Acme Corp,BD,Textiles,tier1,500000,+8801x,acme@example.com"],
         )
 
         response = client.post(
@@ -113,7 +111,7 @@ class TestUploadSuppliers:
 
     def test_validates_required_columns(self, client, auth):
         """Missing required CSV columns returns 400 with column names."""
-        # Only provide name and country -- missing industry, tier, etc.
+        # Only provide name and country -- missing industry, tier, annual_spend_usd, phone
         payload = _csv_bytes("name,country", ["Acme Corp,BD"])
 
         response = client.post(
@@ -125,8 +123,7 @@ class TestUploadSuppliers:
         assert response.status_code == 400
         detail = response.json()["detail"]
         assert "Missing required columns" in detail
-        for col in ("industry", "tier", "annual_spend_usd", "phone",
-                     "preferred_channel", "certifications"):
+        for col in ("industry", "tier", "annual_spend_usd", "phone"):
             assert col in detail
 
     def test_skips_rows_missing_required_fields(self, client, auth):
@@ -135,13 +132,13 @@ class TestUploadSuppliers:
             SUPPLIER_HEADER,
             [
                 # Row 2: valid
-                "Acme Corp,BD,Textiles,tier1,500000,+8801x,whatsapp,ISO9001",
+                "Acme Corp,BD,Textiles,tier1,500000,+8801x,acme@example.com",
                 # Row 3: missing name
-                ",BD,Textiles,tier1,500000,+8801x,whatsapp,",
+                ",BD,Textiles,tier1,500000,+8801x,acme@example.com",
                 # Row 4: missing country
-                "Beta Ltd,,Chemicals,tier2,250000,+911x,email,",
+                "Beta Ltd,,Chemicals,tier2,250000,+911x,betap@example.com",
                 # Row 5: missing tier
-                "Gamma Inc,PK,Logistics,,100000,+921x,whatsapp,",
+                "Gamma Inc,PK,Logistics,,100000,+921x,gamma@example.com",
             ],
         )
 
@@ -165,13 +162,13 @@ class TestUploadSuppliers:
             SUPPLIER_HEADER,
             [
                 # Row 2: invalid tier
-                "Acme Corp,BD,Textiles,tier4,500000,+8801x,whatsapp,ISO9001",
+                "Acme Corp,BD,Textiles,tier4,500000,+8801x,acme@example.com",
                 # Row 3: invalid tier (not in tier1/tier2/tier3)
-                "Beta Ltd,IN,Chemicals,premium,250000,+911x,email,",
+                "Beta Ltd,IN,Chemicals,premium,250000,+911x,betap@example.com",
                 # Row 4: valid (case-insensitive: TIER1 is lowercased to tier1)
-                "Gamma Inc,PK,Logistics,TIER1,100000,+921x,whatsapp,ISO14001",
+                "Gamma Inc,PK,Logistics,TIER1,100000,+921x,gamma@example.com",
                 # Row 5: valid
-                "Delta Co,BD,Textiles,tier2,200000,+8802x,whatsapp,",
+                "Delta Co,BD,Textiles,tier2,200000,+8802x,delta@example.com",
             ],
         )
 
@@ -409,7 +406,7 @@ class TestUploadRBAC:
     def test_supplier_upload_rejects_viewer(self, client):
         payload = _csv_bytes(
             SUPPLIER_HEADER,
-            ["Acme Corp,BD,Textiles,tier1,500000,+8801x,whatsapp,ISO9001"],
+            ["Acme Corp,BD,Textiles,tier1,500000,+8801x,acme@example.com"],
         )
         resp = client.post(
             "/api/upload/suppliers",
@@ -469,7 +466,7 @@ class TestUploadOrgIsolation:
         # Upload as org_bd_001
         payload = _csv_bytes(
             SUPPLIER_HEADER,
-            ["Acme Corp,BD,Textiles,tier1,500000,+8801x,whatsapp,ISO9001"],
+            ["Acme Corp,BD,Textiles,tier1,500000,+8801x,acme@example.com"],
         )
         resp = client.post(
             "/api/upload/suppliers",
@@ -482,9 +479,7 @@ class TestUploadOrgIsolation:
         conn = get_connection()
         from src.db.database import _fetchall
 
-        rows_bd = _fetchall(
-            conn, "SELECT org_id FROM suppliers WHERE org_id = ?", ("org_bd_001",)
-        )
+        rows_bd = _fetchall(conn, "SELECT org_id FROM suppliers WHERE org_id = ?", ("org_bd_001",))
         rows_other = _fetchall(
             conn, "SELECT org_id FROM suppliers WHERE org_id = ?", ("org_other_999",)
         )

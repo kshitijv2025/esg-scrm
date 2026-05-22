@@ -11,10 +11,9 @@ Scores suppliers 0-100 using weighted factors:
 Weights are loaded from data/risk_weights.json and can be tuned
 via train_weights() with corrective feedback.
 """
+
 import json
 import logging
-import math
-import os
 from pathlib import Path
 from typing import Any
 
@@ -34,17 +33,36 @@ DEFAULT_WEIGHTS = {
 
 # Country codes used in seed data and their risk contribution (0-15 scale)
 _COUNTRY_RISK = {
-    "BD": 10,   # Bangladesh
-    "IN": 5,    # India
-    "VN": 8,    # Vietnam
-    "TH": 6,    # Thailand
-    "MM": 15,   # Myanmar
-    "ID": 7,    # Indonesia
-    "CN": 9,    # China
-    "TR": 10,   # Turkey
-    "KH": 12,   # Cambodia
-    "PK": 14,   # Pakistan
+    "BD": 10,  # Bangladesh
+    "IN": 5,  # India
+    "VN": 8,  # Vietnam
+    "TH": 6,  # Thailand
+    "MM": 15,  # Myanmar
+    "ID": 7,  # Indonesia
+    "CN": 9,  # China
+    "TR": 10,  # Turkey
+    "KH": 12,  # Cambodia
+    "PK": 14,  # Pakistan
 }
+
+_COUNTRY_RISK_CACHE: dict = {}
+_COUNTRY_RISK_CACHE_LOADED = False
+
+
+def _get_country_risk(country_code: str) -> float:
+    """Return country risk score, defaulting to 15.0 (highest) for unknown codes."""
+    global _COUNTRY_RISK_CACHE_LOADED
+    if not _COUNTRY_RISK_CACHE_LOADED:
+        global _COUNTRY_RISK_CACHE
+        _COUNTRY_RISK_CACHE = _load_country_risk_from_db()
+        _COUNTRY_RISK_CACHE_LOADED = True
+    return _COUNTRY_RISK_CACHE.get(country_code.upper(), 15.0)
+
+
+def _load_country_risk_from_db() -> dict[str, float]:
+    """Load country risk scores from database (returns static dict for now)."""
+    return _COUNTRY_RISK.copy()
+
 
 # Risk tier base scores (0-60 scale, weighted by risk_tier weight)
 _RISK_TIER_SCORES = {"A": 0, "B": 30, "C": 60}
@@ -108,9 +126,13 @@ def _build_recommendation(score: float, factors: dict[str, Any]) -> str:
         parts.append("Outstanding risk flags require review and acknowledgment")
 
     if factors.get("cert_count", 0) == 0:
-        parts.append("No certifications on file — request ISO 14001 or equivalent compliance evidence")
+        parts.append(
+            "No certifications on file — request ISO 14001 or equivalent compliance evidence"
+        )
     elif factors.get("cert_count", 0) == 1:
-        parts.append("Only one certification — encourage additional certifications for risk reduction")
+        parts.append(
+            "Only one certification — encourage additional certifications for risk reduction"
+        )
 
     qs = factors.get("questionnaire_status_raw", "")
     if qs == "not_sent":
@@ -311,7 +333,8 @@ def train_weights(feedback: list[dict[str, Any]]) -> dict[str, Any]:
         if not supplier_id or expected_level not in LEVEL_NUMERIC:
             logger.warning(
                 "risk_predictor.train_skip supplier_id=%s expected_level=%s — invalid",
-                supplier_id, expected_level,
+                supplier_id,
+                expected_level,
             )
             continue
 
@@ -324,13 +347,15 @@ def train_weights(feedback: list[dict[str, Any]]) -> dict[str, Any]:
         error = predicted_score - expected_score
 
         if abs(error) < 1.0:
-            adjustments.append({
-                "supplier_id": supplier_id,
-                "predicted": predicted_score,
-                "expected": expected_score,
-                "error": round(error, 2),
-                "adjustment": "none — within tolerance",
-            })
+            adjustments.append(
+                {
+                    "supplier_id": supplier_id,
+                    "predicted": predicted_score,
+                    "expected": expected_score,
+                    "error": round(error, 2),
+                    "adjustment": "none — within tolerance",
+                }
+            )
             continue
 
         # Find which factor is most over/under-contributing
@@ -351,15 +376,17 @@ def train_weights(feedback: list[dict[str, Any]]) -> dict[str, Any]:
         old_weight = weights[dominant_factor]
         weights[dominant_factor] = round(max(0.05, min(0.60, old_weight + delta)), 4)
 
-        adjustments.append({
-            "supplier_id": supplier_id,
-            "predicted": predicted_score,
-            "expected": expected_score,
-            "error": round(error, 2),
-            "adjusted_factor": dominant_factor,
-            "weight_before": old_weight,
-            "weight_after": weights[dominant_factor],
-        })
+        adjustments.append(
+            {
+                "supplier_id": supplier_id,
+                "predicted": predicted_score,
+                "expected": expected_score,
+                "error": round(error, 2),
+                "adjusted_factor": dominant_factor,
+                "weight_before": old_weight,
+                "weight_after": weights[dominant_factor],
+            }
+        )
 
     # Renormalize weights so they sum to 1.0
     total = sum(weights.values())

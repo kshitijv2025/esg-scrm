@@ -1,0 +1,151 @@
+/* Legal page shared styles — imported by both PrivacyPage and TermsPage */
+.legal-page {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+}
+
+.legal-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 32px;
+}
+
+.legal-header-content {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.legal-logo {
+  text-decoration: none;
+}
+
+.legal-logo-text {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--green);
+  letter-spacing: -0.03em;
+}
+
+.legal-main {
+  padding: 48px 24px;
+}
+
+.legal-container {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.legal-title {
+  font-size: 2rem;
+  font-weight: 900;
+  color: var(--text);
+  letter-spacing: -0.03em;
+  margin-bottom: 8px;
+}
+
+.legal-updated {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 40px;
+}
+
+.legal-section {
+  margin-bottom: 32px;
+}
+
+.legal-section h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.legal-section p {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  line-height: 1.7;
+  margin-bottom: 12px;
+}
+
+.legal-section ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.legal-section li {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  line-height: 1.6;
+  padding-left: 20px;
+  position: relative;
+}
+
+.legal-section li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.legal-section li strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.legal-link {
+  color: var(--green);
+  text-decoration: none;
+}
+
+.legal-link:hover {
+  text-decoration: underline;
+}
+
+.legal-contact {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  margin-top: 12px;
+}
+
+.legal-contact p {
+  margin-bottom: 0;
+}
+
+.legal-footer-link {
+  margin-top: 48px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.legal-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--green);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: opacity 0.15s;
+}
+
+.legal-back-link:hover {
+  opacity: 0.8;
+}
+
+.legal-back-link::before {
+  content: "\2190";
+  font-size: 1rem;
+}

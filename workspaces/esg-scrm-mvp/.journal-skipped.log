@@ -1,0 +1,37 @@
+2026-05-18T06:08:13.265Z <journal-skip>commit=87799782ff61 reason=feat-no-novel-body subject="feat: ESG SCRM platform — full product build with auth, ETL, real-time alerts"</journal-skip>
+2026-05-18T14:51:02.232Z <journal-skip>commit=447d3584b767 reason=fix-routine subject="fix(security): redteam Round 3 — org isolation on templates and questionnaires"</journal-skip>
+2026-05-18T14:51:02.232Z <journal-skip>commit=d59bf3c8fac6 reason=fix-routine subject="fix(security): redteam Round 2 — resolve all CRITICAL and HIGH findings"</journal-skip>
+2026-05-18T14:58:20.664Z <journal-skip>commit=447d3584b767 reason=fix-routine subject="fix(security): redteam Round 3 — org isolation on templates and questionnaires"</journal-skip>
+2026-05-18T14:58:20.665Z <journal-skip>commit=d59bf3c8fac6 reason=fix-routine subject="fix(security): redteam Round 2 — resolve all CRITICAL and HIGH findings"</journal-skip>
+2026-05-19T13:04:00.213Z <journal-skip>commit=e35f5945a1c1 reason=fix-routine subject="fix(security): redteam convergence — Milestone A Data Foundation hardened"</journal-skip>
+2026-05-19T15:26:42.713Z <journal-skip>commit=e4bc70fd02ac reason=coc-housekeeping subject="chore(coc): land /sync-to-build delivery"</journal-skip>
+2026-05-20T07:23:39.505Z <journal-skip>commit=246533822b7b reason=coc-housekeeping subject="chore(coc): land /sync-to-build delivery"</journal-skip>
+2026-05-20T07:24:05.609Z <journal-skip>commit=246533822b7b reason=coc-housekeeping subject="chore(coc): land /sync-to-build delivery"</journal-skip>
+2026-05-21T12:30:33.375Z <journal-skip>commit=7a451f5db1ae reason=fix-routine subject="fix(tests): align with D3/D4 API changes"</journal-skip>
+2026-05-21T12:30:33.375Z <journal-skip>commit=75b8df632d9b reason=fix-routine subject="fix(dashboard): align operations-summary response with spec"</journal-skip>
+2026-05-21T12:30:33.376Z <journal-skip>commit=2ebc689c721f reason=test-routine subject="test(phase-d): update scope3 completeness test for D3.5 scope1/scope2/scope3 fields"</journal-skip>
+2026-05-21T12:30:33.376Z <journal-skip>commit=036ef8005767 reason=test-routine subject="test(phase-d): update risk route tests for D3.3 4-chip summary + RiskFlag schema"</journal-skip>
+2026-05-21T12:30:33.376Z <journal-skip>commit=ee9894d65a8d reason=test-routine subject="test(phase-d): add D1.3/D1.6 alerts coverage — recommendations, escalation, deduplication"</journal-skip>
+2026-05-21T12:30:33.376Z <journal-skip>commit=7d1a943d484f reason=feat-no-novel-body subject="feat(D4): Dashboard operations grid, trend chart waste series, data-driven TrustBadges"</journal-skip>
+2026-05-21T12:30:33.376Z <journal-skip>commit=74b414a6d32a reason=feat-no-novel-body subject="feat(D3): add Risk Score Strip to dashboard"</journal-skip>
+2026-05-21T12:30:33.376Z <journal-skip>commit=d15d75d58d24 reason=feat-no-novel-body subject="feat(D7.9+D7.11): corrective actions escalation and documents CRUD with tests"</journal-skip>
+2026-05-21T12:30:33.376Z <journal-skip>commit=4a5d93faaf53 reason=feat-no-novel-body subject="feat(D7.1+D7.10): add buyer portal and admin settings unit tests"</journal-skip>
+2026-05-21T12:30:33.376Z <journal-skip>commit=420f6ebf1978 reason=feat-no-novel-body subject="feat(D6.6): add ML batch size limit of 100 entries max"</journal-skip>
+2026-05-21T12:30:33.376Z <journal-skip>commit=280a93e68cab reason=feat-no-novel-body subject="feat(D5): production Dockerfile, docker-compose, nginx, and enhanced health check"</journal-skip>
+2026-05-21T17:49:56.285Z <journal-skip>commit=179ad5e1f56b reason=fix-routine subject="fix(schema): add missing tables and fix seed for compliance_deadlines, scheduled_reports, webhooks, country_risk_scores, user_orgs"</journal-skip>
+2026-05-21T17:49:56.286Z <journal-skip>commit=8871a7b1c5f2 reason=fix-routine subject="fix(seed): add production_volume, renewable_kwh, wastewater_discharge to metrics"</journal-skip>
+2026-05-21T17:50:16.111Z <journal-skip>commit=179ad5e1f56b reason=fix-routine subject="fix(schema): add missing tables and fix seed for compliance_deadlines, scheduled_reports, webhooks, country_risk_scores, user_orgs"</journal-skip>
+2026-05-21T17:50:16.112Z <journal-skip>commit=8871a7b1c5f2 reason=fix-routine subject="fix(seed): add production_volume, renewable_kwh, wastewater_discharge to metrics"</journal-skip>
+2026-05-21T17:51:19.032Z <journal-skip>commit=179ad5e1f56b reason=fix-routine subject="fix(schema): add missing tables and fix seed for compliance_deadlines, scheduled_reports, webhooks, country_risk_scores, user_orgs"</journal-skip>
+2026-05-21T17:51:19.033Z <journal-skip>commit=8871a7b1c5f2 reason=fix-routine subject="fix(seed): add production_volume, renewable_kwh, wastewater_discharge to metrics"</journal-skip>
+2026-05-21T17:51:32.644Z <journal-skip>commit=179ad5e1f56b reason=fix-routine subject="fix(schema): add missing tables and fix seed for compliance_deadlines, scheduled_reports, webhooks, country_risk_scores, user_orgs"</journal-skip>
+2026-05-21T17:51:32.645Z <journal-skip>commit=8871a7b1c5f2 reason=fix-routine subject="fix(seed): add production_volume, renewable_kwh, wastewater_discharge to metrics"</journal-skip>
+2026-05-21T17:51:40.460Z <journal-skip>commit=179ad5e1f56b reason=fix-routine subject="fix(schema): add missing tables and fix seed for compliance_deadlines, scheduled_reports, webhooks, country_risk_scores, user_orgs"</journal-skip>
+2026-05-21T17:51:40.460Z <journal-skip>commit=8871a7b1c5f2 reason=fix-routine subject="fix(seed): add production_volume, renewable_kwh, wastewater_discharge to metrics"</journal-skip>
+2026-05-21T17:52:26.487Z <journal-skip>commit=179ad5e1f56b reason=fix-routine subject="fix(schema): add missing tables and fix seed for compliance_deadlines, scheduled_reports, webhooks, country_risk_scores, user_orgs"</journal-skip>
+2026-05-21T17:52:26.487Z <journal-skip>commit=8871a7b1c5f2 reason=fix-routine subject="fix(seed): add production_volume, renewable_kwh, wastewater_discharge to metrics"</journal-skip>
+2026-05-21T22:37:03.384Z <journal-skip>commit=f319ab8a16da reason=fix-routine subject="fix(spec05): add id and confidence fields to SupplierResponse"</journal-skip>
+2026-05-21T22:37:03.385Z <journal-skip>commit=d37d11b8790a reason=feat-no-novel-body subject="feat(spec05): implement SPEC 05 data model fields"</journal-skip>
+2026-05-21T22:37:03.385Z <journal-skip>commit=d550a452903a reason=feat-no-novel-body subject="feat(supplier): add SupplierQuestionnaire, QuestionnaireTemplate, QuestionnaireQuestion"</journal-skip>
+2026-05-22T08:17:08.544Z <journal-skip>commit=387530b338b2 reason=coc-housekeeping subject="chore(coc): land /sync-to-build delivery"</journal-skip>
+2026-05-22T08:17:44.701Z <journal-skip>commit=387530b338b2 reason=coc-housekeeping subject="chore(coc): land /sync-to-build delivery"</journal-skip>

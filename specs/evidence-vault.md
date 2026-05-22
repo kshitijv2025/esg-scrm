@@ -18,12 +18,12 @@ Entry N: hash_current = SHA-256(raw_value + source + timestamp + Entry[N-1].hash
 
 ### Chain Integrity Verification
 
-`GET /api/evidence/verify/{metric_id}`:
+`GET /api/evidence/verify/{metric_type}`:
 
 1. Loads all chain entries for the metric, ordered by recorded_at
 2. Recomputes each hash_current from entry data + previous hash
 3. Compares computed hash against stored hash
-4. Returns: `{metric_id, chain_length, integrity: "VALID"|"BROKEN", broken_at: null|entry_id}`
+4. Returns: `{metric_type, chain_length, integrity: "VALID"|"BROKEN", broken_at: null|data_point_id}`
 
 A broken chain indicates data was modified after recording — the system never modifies entries in place.
 
@@ -33,16 +33,22 @@ A broken chain indicates data was modified after recording — the system never 
 
 Every metric uploaded or ingested creates an evidence chain entry with:
 
-| Field                            | Source                         | Purpose                   |
-| -------------------------------- | ------------------------------ | ------------------------- |
-| `source_system`                  | "csv_upload", "mqtt", "sap_b1" | Where the data came from  |
-| `raw_value`                      | Original reading               | Unmodified source value   |
-| `calculated_value`               | After emission factor          | The reported number       |
-| `emission_factor_id`             | Emission factor table          | Which factor was applied  |
-| `methodology`                    | Text description               | How raw became calculated |
-| `confidence`                     | Computed from data quality     | HIGH/MEDIUM/LOW           |
-| `recorded_by`                    | User ID                        | Who entered the data      |
-| `hash_previous` + `hash_current` | SHA-256 chain                  | Integrity proof           |
+| Field                    | Source                         | Purpose                   |
+| ------------------------ | ------------------------------ | ------------------------- |
+| `source_record_id`       | DB primary key `id`            | Stable source record ref  |
+| `source_system`          | DB `source_system`             | Where the data came from  |
+| `value`                  | DB `value` (calculated)        | Reported metric value     |
+| `emission_factor_source` | Joined from `emission_factors` | Factor source citation    |
+| `emission_factor_year`   | Joined from `emission_factors` | Factor year               |
+| `emission_factor_value`  | Joined from `emission_factors` | Factor value              |
+| `emission_factor_unit`   | Joined from `emission_factors` | Factor unit               |
+| `emission_factor_table`  | Joined from `emission_factors` | Factor table name         |
+| `calculation_method`     | DB `methodology`               | How raw became calculated |
+| `confidence`             | Computed dynamically           | HIGH/MEDIUM/LOW           |
+| `confidence_score`       | Computed 0.0-1.0               | Numeric confidence        |
+| `confidence_reasons`     | Computed [str]                 | Scoring rationale         |
+| `previous_hash`          | DB `prev_hash`                 | SHA-256 chain link        |
+| `hash`                   | DB `hash`                      | SHA-256 integrity proof   |
 
 ### Confidence Scoring
 
@@ -54,7 +60,7 @@ Every metric uploaded or ingested creates an evidence chain entry with:
 
 Confidence is computed from:
 
-1. **Source reliability**: mqtt/sap_b1 (HIGH) > csv_upload (MEDIUM) > manual (LOW)
+1. **Source reliability**: mqtt/sap_b1 (HIGH) > manual (LOW)
 2. **Data recency**: < 30 days (no penalty) > 30-90 days (-1 level) > 90+ days (-2 levels)
 3. **Emission factor specificity**: region-specific (no penalty) > global default (-1 level)
 
@@ -98,7 +104,7 @@ Generates a ZIP package containing:
 
 ### Evidence Drilldown
 
-`GET /api/evidence/{metric_id}`:
+`GET /api/evidence/drilldown/{metric_type}`:
 
 Returns full evidence chain for one metric:
 

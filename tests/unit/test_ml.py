@@ -15,15 +15,14 @@ from fastapi.testclient import TestClient
 
 from src.api.main import app
 from src.auth.jwt import create_token
-from src.db.database import get_connection, _execute, _fetchone, reset_database
+from src.db.database import _execute, get_connection, reset_database
 from src.ml.risk_predictor import (
-    DEFAULT_WEIGHTS,
-    predict_supplier_risk,
-    batch_predict,
-    train_weights,
     _WEIGHTS_PATH,
+    DEFAULT_WEIGHTS,
+    batch_predict,
+    predict_supplier_risk,
+    train_weights,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

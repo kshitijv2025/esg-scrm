@@ -3,14 +3,19 @@
 import json
 import sys
 import uuid
-from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
 
-import pytest
+try:
+    from datetime import UTC, datetime, timedelta
+except ImportError:
+    from datetime import timezone, datetime, timedelta
+
+    UTC = timezone.utc
+from unittest.mock import patch
 
 sys.path.insert(0, "src")
 
 from fastapi.testclient import TestClient
+
 from src.api.main import app
 from src.auth.jwt import create_token
 from src.db.database import get_connection, release_connection
@@ -238,7 +243,7 @@ class TestBuyerPortalAccess:
         sup1 = _supplier_id()
         sup2 = _supplier_id()
         token = uuid.uuid4().hex + uuid.uuid4().hex[:16]
-        expires = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+        expires = (datetime.now(UTC) + timedelta(days=30)).isoformat()
 
         conn = get_connection()
         try:
@@ -278,7 +283,7 @@ class TestBuyerPortalAccess:
         """An expired token returns 403."""
         org_id = _org_id()
         token = uuid.uuid4().hex + uuid.uuid4().hex[:16]
-        expires = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        expires = (datetime.now(UTC) - timedelta(days=1)).isoformat()
 
         conn = get_connection()
         try:
@@ -307,7 +312,7 @@ class TestBuyerPortalAccess:
         sup_in_scope = _supplier_id()
         sup_out_scope = _supplier_id()
         token = uuid.uuid4().hex + uuid.uuid4().hex[:16]
-        expires = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+        expires = (datetime.now(UTC) + timedelta(days=30)).isoformat()
 
         conn = get_connection()
         try:
@@ -346,7 +351,7 @@ class TestBuyerPortalAccess:
         org_id = _org_id()
         sup = _supplier_id()
         token = uuid.uuid4().hex + uuid.uuid4().hex[:16]
-        expires = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+        expires = (datetime.now(UTC) + timedelta(days=30)).isoformat()
 
         conn = get_connection()
         try:
@@ -388,8 +393,8 @@ class TestRevokeBuyerAccess:
         org_id = _org_id()
         buyer_org_id = _org_id()
         token = uuid.uuid4().hex + uuid.uuid4().hex[:16]
-        expires = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
-        headers = _admin_headers(org_id)
+        expires = (datetime.now(UTC) + timedelta(days=30)).isoformat()
+        _admin_headers(org_id)
 
         conn = get_connection()
         try:

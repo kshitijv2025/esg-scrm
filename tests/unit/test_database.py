@@ -1,13 +1,18 @@
 """Tests for database layer — connection manager, query helpers, seed."""
 import sys
+
 sys.path.insert(0, "src")
 
 from src.db.database import (
-    get_connection, fetch_metrics, fetch_suppliers, fetch_supplier,
-    fetch_risk_flags, fetch_coverage_stats, fetch_all_scope3,
+    fetch_all_scope3,
+    fetch_coverage_stats,
+    fetch_metrics,
+    fetch_risk_flags,
+    fetch_supplier,
+    fetch_suppliers,
+    get_connection,
 )
 from src.db.seed import seed
-from src.evidence.hash_chain import compute_hash
 
 
 class TestDatabaseManager:

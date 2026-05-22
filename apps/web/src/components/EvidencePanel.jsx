@@ -1,9 +1,34 @@
-import { apiFetch } from "../api/client";
+import { apiFetch, apiExport } from "../api/client";
+import { useState } from "react";
+
+const FRAMEWORKS = [
+  { value: "", label: "All Frameworks" },
+  { value: "csrd", label: "CSRD" },
+  { value: "gri", label: "GRI" },
+  { value: "tcfd", label: "TCFD" },
+  { value: "issb", label: "ISSB" },
+];
 
 export default function EvidencePanel({ metricType, data, onClose }) {
   if (!data) return null;
 
   const { entries = [], chain_valid = true, summary = {} } = data;
+  const [period, setPeriod] = useState("");
+  const [framework, setFramework] = useState("");
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (period) params.set("period", period);
+      if (framework) params.set("framework", framework);
+      const query = params.toString() ? `?${params.toString()}` : "";
+      await apiExport(`/evidence/export${query}`, "evidence_export.zip");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <div className="evidence-overlay" onClick={onClose}>
@@ -13,6 +38,36 @@ export default function EvidencePanel({ metricType, data, onClose }) {
           <button className="evidence-close" onClick={onClose}>
             &times;
           </button>
+        </div>
+
+        <div className="evidence-export-controls">
+          <div className="export-filters">
+            <input
+              type="text"
+              placeholder="Period (e.g. 2024-01-01_2024-12-31)"
+              value={period}
+              onChange={(e) => setPeriod(e.target.value)}
+              className="export-period-input"
+            />
+            <select
+              value={framework}
+              onChange={(e) => setFramework(e.target.value)}
+              className="export-framework-select"
+            >
+              {FRAMEWORKS.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn-export-audit"
+              onClick={handleExport}
+              disabled={exporting}
+            >
+              {exporting ? "Exporting..." : "Export for Audit"}
+            </button>
+          </div>
         </div>
 
         <div className="evidence-chain-status">

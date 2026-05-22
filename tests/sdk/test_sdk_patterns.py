@@ -124,8 +124,8 @@ def test_core_sdk_patterns():
 
     @sdk_test("Execute workflow with LocalRuntime")
     def _():
-        from kailash.workflow.builder import WorkflowBuilder
         from kailash.runtime import LocalRuntime
+        from kailash.workflow.builder import WorkflowBuilder
 
         workflow = WorkflowBuilder()
         workflow.add_node("PythonCodeNode", "calc", {"code": "result = 42"})
@@ -140,8 +140,8 @@ def test_core_sdk_patterns():
 
     @sdk_test("LocalRuntime returns (results, run_id) tuple")
     def _():
-        from kailash.workflow.builder import WorkflowBuilder
         from kailash.runtime import LocalRuntime
+        from kailash.workflow.builder import WorkflowBuilder
 
         workflow = WorkflowBuilder()
         workflow.add_node("PythonCodeNode", "test", {"code": "x = 1"})
@@ -274,8 +274,8 @@ def test_node_patterns():
 
     @sdk_test("PythonCodeNode can execute")
     def _():
-        from kailash.workflow.builder import WorkflowBuilder
         from kailash.runtime import LocalRuntime
+        from kailash.workflow.builder import WorkflowBuilder
 
         workflow = WorkflowBuilder()
         workflow.add_node("PythonCodeNode", "log", {"code": "result = 'logged'"})
@@ -374,8 +374,8 @@ def test_workflow_builder_features():
 
     @sdk_test("Connections create data flow")
     def _():
-        from kailash.workflow.builder import WorkflowBuilder
         from kailash.runtime import LocalRuntime
+        from kailash.workflow.builder import WorkflowBuilder
 
         workflow = WorkflowBuilder()
         workflow.add_node("PythonCodeNode", "producer", {"code": "output = 42"})
@@ -431,8 +431,8 @@ def test_context_patterns():
 
     @sdk_test("Runtime can be used as context manager")
     def _():
-        from kailash.workflow.builder import WorkflowBuilder
         from kailash.runtime import LocalRuntime
+        from kailash.workflow.builder import WorkflowBuilder
 
         workflow = WorkflowBuilder()
         workflow.add_node("PythonCodeNode", "test", {"code": "x = 1"})

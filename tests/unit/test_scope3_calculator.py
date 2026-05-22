@@ -20,7 +20,7 @@ from src.supplier.scope3_calculator import (
     calculate_response_rate,
     is_response_above_threshold,
 )
-from src.supplier.nlu_parser import NLUParser, ParsedResponse, ParsedAnswer, ConfidenceLevel
+from src.supplier.nlu_parser import NLUParser
 
 
 class TestScope3Calculator:

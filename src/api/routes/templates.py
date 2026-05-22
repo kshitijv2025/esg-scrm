@@ -1,11 +1,12 @@
 """Questionnaire template API — CRUD operations for ESG questionnaire templates."""
+
 import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.middleware.auth import require_auth
-from src.api.middleware.rbac import require_role, VIEWER_ROLES, EDITOR_ROLES, ADMIN_ROLES
+from src.api.middleware.rbac import require_role, EDITOR_ROLES, ADMIN_ROLES
 from src.db.database import get_connection, release_connection, _fetchall, _fetchone, _execute
 
 router = APIRouter()
@@ -22,7 +23,10 @@ def list_templates(
     org_id = user["org_id"]
     conn = get_connection()
     try:
-        query = "SELECT * FROM questionnaire_templates WHERE is_active = 1 AND (org_id = ? OR org_id = '')"
+        query = (
+            "SELECT * FROM questionnaire_templates "
+            "WHERE is_active = 1 AND (org_id = ? OR org_id = '')"
+        )
         params: list = [org_id]
 
         if tier is not None:
@@ -42,13 +46,16 @@ def list_templates(
 
 @router.get("/{template_id}")
 def get_template(template_id: int, user: dict = Depends(require_auth)):
-    """Get a single template by ID. Returns 404 if not found, inactive, or belongs to another org."""
+    """Get a single template by ID.
+
+    Returns 404 if not found, inactive, or belongs to another org."""
     org_id = user["org_id"]
     conn = get_connection()
     try:
         template = _fetchone(
             conn,
-            "SELECT * FROM questionnaire_templates WHERE id = ? AND is_active = 1 AND (org_id = ? OR org_id = '')",
+            "SELECT * FROM questionnaire_templates "
+            "WHERE id = ? AND is_active = 1 AND (org_id = ? OR org_id = '')",
             (template_id, org_id),
         )
         if template is None:
@@ -83,6 +90,8 @@ def create_template(body: dict, user: dict = Depends(require_auth)):
     questions = body["questions"]
     if not isinstance(questions, list):
         raise HTTPException(status_code=400, detail="questions must be a list")
+    if not questions:
+        raise HTTPException(status_code=400, detail="questions cannot be empty")
 
     for i, q in enumerate(questions):
         if not isinstance(q, dict):
@@ -118,7 +127,7 @@ def create_template(body: dict, user: dict = Depends(require_auth)):
             ),
         )
 
-        return {"id": cur.lastrowid, "status": "created"}
+        return {"id": cur.lastrowid, "status": "created", "question_count": len(questions)}
     finally:
         release_connection(conn)
 
@@ -132,7 +141,8 @@ def update_template(template_id: int, body: dict, user: dict = Depends(require_a
     try:
         existing = _fetchone(
             conn,
-            "SELECT * FROM questionnaire_templates WHERE id = ? AND is_active = 1 AND (org_id = ? OR org_id = '')",
+            "SELECT * FROM questionnaire_templates "
+            "WHERE id = ? AND is_active = 1 AND (org_id = ? OR org_id = '')",
             (template_id, org_id),
         )
         if existing is None:
@@ -169,9 +179,7 @@ def update_template(template_id: int, body: dict, user: dict = Depends(require_a
         description = body.get("description", existing["description"])
         tier = body.get("tier", existing["tier"])
         questions_json = (
-            json.dumps(body["questions"])
-            if "questions" in body
-            else existing["questions"]
+            json.dumps(body["questions"]) if "questions" in body else existing["questions"]
         )
 
         _execute(
@@ -204,7 +212,8 @@ def delete_template(template_id: int, user: dict = Depends(require_auth)):
     try:
         existing = _fetchone(
             conn,
-            "SELECT * FROM questionnaire_templates WHERE id = ? AND is_active = 1 AND (org_id = ? OR org_id = '')",
+            "SELECT * FROM questionnaire_templates "
+            "WHERE id = ? AND is_active = 1 AND (org_id = ? OR org_id = '')",
             (template_id, org_id),
         )
         if existing is None:

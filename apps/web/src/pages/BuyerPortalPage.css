@@ -1,0 +1,250 @@
+.buyer-portal {
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.portal-header {
+  background: var(--primary);
+  color: white;
+  padding: 2rem;
+}
+
+.header-content h1 {
+  margin-bottom: 0.25rem;
+}
+
+.header-content p {
+  opacity: 0.9;
+}
+
+.portal-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.portal-content section {
+  margin-bottom: 2rem;
+}
+
+.portal-content h2 {
+  margin-bottom: 1rem;
+  font-size: 1.25rem;
+}
+
+.loading-state,
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 50vh;
+  gap: 1rem;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.error-state {
+  color: var(--error);
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.metric-card {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.metric-cluster {
+  text-transform: capitalize;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.metric-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.metric-latest {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.suppliers-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.supplier-card {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 1.25rem;
+}
+
+.supplier-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.supplier-header h3 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.risk-tier {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.tier-a, .tier-a { background: #d1fae5; color: #065f46; }
+.tier-b, .tier-b { background: #fef3c7; color: #92400e; }
+.tier-c, .tier-c { background: #fed7aa; color: #9a3412; }
+.tier-d, .tier-d { background: #fee2e2; color: #991b1b; }
+.tier-unknown { background: var(--bg-tertiary); color: var(--text-secondary); }
+
+.supplier-details {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+}
+
+.supplier-metrics {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.supplier-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.supplier-metric .label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.supplier-metric .value {
+  font-weight: 600;
+}
+
+.status {
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.status-responding { color: var(--success); }
+.status-not_sent { color: var(--text-secondary); }
+.status-pending { color: var(--warning); }
+
+.supplier-certs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.cert-badge {
+  background: var(--bg-tertiary);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.risk-flags-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.risk-flag {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 1rem;
+  border-left: 4px solid;
+}
+
+.risk-flag.severity-critical { border-color: var(--error); }
+.risk-flag.severity-warning { border-color: var(--warning); }
+.risk-flag.severity-info { border-color: var(--info); }
+
+.flag-header {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.severity-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+}
+
+.severity-critical .severity-badge { background: #fee2e2; color: #991b1b; }
+.severity-warning .severity-badge { background: #fef3c7; color: #92400e; }
+.severity-info .severity-badge { background: #dbeafe; color: #1e40af; }
+
+.flag-text {
+  margin: 0.5rem 0;
+  font-size: 0.875rem;
+}
+
+.supplier-name {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.evidence-stats {
+  display: flex;
+  gap: 2rem;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.stat-label {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.no-data {
+  color: var(--text-secondary);
+  font-style: italic;
+}

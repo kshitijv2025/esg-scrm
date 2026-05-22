@@ -1,6 +1,8 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import Logo from "./Logo";
+import LanguageSelector from "./LanguageSelector";
+import { sanitize } from "../utils/sanitize";
 
 const TABS = [
   { id: "operations", label: "Operations" },
@@ -8,6 +10,9 @@ const TABS = [
   { id: "risk-alerts", label: "Risk Alerts" },
   { id: "frameworks", label: "Frameworks" },
   { id: "supplier-engagement", label: "Engagement" },
+  { id: "template-builder", label: "Templates" },
+  { id: "reports", label: "Report Builder" },
+  { id: "admin-settings", label: "Admin" },
 ];
 
 function getTabFromPath(pathname) {
@@ -15,7 +20,7 @@ function getTabFromPath(pathname) {
   return pathname.replace("/", "");
 }
 
-export default function Header() {
+export default function Header({ locale, onLocaleChange }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -27,8 +32,8 @@ export default function Header() {
         <Logo />
         <div className="header-divider" />
         <div className="header-org">
-          <strong>{user?.full_name || "User"}</strong>
-          <span>{user?.email || ""}</span>
+          <strong>{sanitize(user?.full_name || "User")}</strong>
+          <span>{sanitize(user?.email || "")}</span>
         </div>
       </div>
 
@@ -45,6 +50,7 @@ export default function Header() {
       </nav>
 
       <div className="header-right">
+        <LanguageSelector value={locale} onChange={onLocaleChange} />
         <button className="logout-btn" onClick={logout}>
           Logout
         </button>

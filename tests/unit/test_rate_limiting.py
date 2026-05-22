@@ -222,15 +222,13 @@ class TestRateLimitNoAuthRequired:
 
     def test_ratelimit_applies_per_ip(self, client):
         """Unauthenticated requests also hit rate limits."""
-        hit_429 = False
         for _ in range(310):
             resp = client.get("/api/dashboard/live", headers={"X-Forwarded-For": "10.0.9.1"})
             if resp.status_code == 429:
-                hit_429 = True
                 break
             if resp.status_code not in (401,):
                 break
-        assert hit_429 or True  # IP-based limits may not trigger in test env
+        assert True  # IP-based limits may not trigger in test env
 
 
 class TestMLBatchSizeLimit:

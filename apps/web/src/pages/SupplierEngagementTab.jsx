@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "../api/client";
 import { ErrorState } from "../components/ErrorState";
+import { sanitize } from "../utils/sanitize";
 
 const CHANNEL_LABELS = {
   whatsapp: "WhatsApp",
@@ -40,7 +41,7 @@ function ManualEntryForm({ supplierId, supplierName, onCancel, onSuccess }) {
 
   useEffect(() => {
     if (!supplierId) return;
-    apiFetch("/api/questionnaires/suppliers/" + supplierId)
+    apiFetch("/questionnaires/suppliers/" + supplierId)
       .then((r) => r.json())
       .then((d) => {
         setQuestions(d.questions || []);
@@ -108,7 +109,7 @@ function ManualEntryForm({ supplierId, supplierName, onCancel, onSuccess }) {
         {questions.map((q) => (
           <div key={q.question_id} className="manual-question-row">
             <label>
-              {q.text}
+              {sanitize(q.text || "")}
               <span className="q-type-hint">({q.question_type})</span>
             </label>
             {q.question_type === "choice" && q.choices ? (
@@ -197,7 +198,7 @@ export default function SupplierEngagementTab() {
   useEffect(() => {
     if (!selectedSupplierId || view !== "detail") return;
     setDetailLoading(true);
-    apiFetch(`/api/questionnaires/suppliers/${selectedSupplierId}`)
+    apiFetch(`/questionnaires/suppliers/${selectedSupplierId}`)
       .then((r) => r.json())
       .then((d) => {
         setDetail(d);
@@ -341,7 +342,7 @@ export default function SupplierEngagementTab() {
                       setView("detail");
                     }}
                   >
-                    <span className="chip-name">{s.name}</span>
+                    <span className="chip-name">{sanitize(s.name || "")}</span>
                     <span className="chip-channel whatsapp">WhatsApp</span>
                   </div>
                 ))}
@@ -373,7 +374,7 @@ export default function SupplierEngagementTab() {
                       setView("detail");
                     }}
                   >
-                    <span className="chip-name">{s.name}</span>
+                    <span className="chip-name">{sanitize(s.name || "")}</span>
                     <span className="chip-country">{s.country || ""}</span>
                   </div>
                   <div className="chip-actions">
@@ -447,7 +448,7 @@ export default function SupplierEngagementTab() {
         <div className="eng-detail-view">
           <div className="eng-detail-header">
             <div>
-              <h3>{detail?.supplier?.name || "Supplier"}</h3>
+              <h3>{sanitize(detail?.supplier?.name || "Supplier")}</h3>
               <span className="eng-detail-meta">
                 Tier {detail?.template?.tier || "—"} · Template:{" "}
                 {detail?.template?.name || "—"}
@@ -474,14 +475,16 @@ export default function SupplierEngagementTab() {
                   >
                     <div className="response-card-header">
                       <span className="resp-q-num">{q.question_id}</span>
-                      <span className="resp-q-text">{q.text}</span>
+                      <span className="resp-q-text">
+                        {sanitize(q.text || "")}
+                      </span>
                       {conf && <ConfidenceBadge level={conf} />}
                     </div>
                     <div className="response-card-body">
                       {hasResponse ? (
                         <div className="resp-value-row">
                           <span className="resp-value">
-                            {response.response_text || "—"}
+                            {sanitize(response.response_text || "—")}
                           </span>
                           {response.response_value != null && (
                             <span className="resp-numeric">
@@ -622,9 +625,11 @@ export default function SupplierEngagementTab() {
                     <div className="timeline-row-left">
                       <div className={`stage-dot ${stage}`} />
                       <div className="timeline-supplier-info">
-                        <span className="tl-name">{sup.name}</span>
+                        <span className="tl-name">
+                          {sanitize(sup.name || "")}
+                        </span>
                         <span className="tl-country">
-                          {sup.country} · Tier {sup.tier}
+                          {sanitize(sup.country || "")} · Tier {sup.tier}
                         </span>
                       </div>
                     </div>

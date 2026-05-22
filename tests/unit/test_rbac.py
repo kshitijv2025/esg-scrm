@@ -164,7 +164,7 @@ class TestRoleSetDefinitions:
         assert EDITOR_ROLES.issubset(VIEWER_ROLES)
 
     def test_admin_roles_contains_only_admin(self):
-        assert ADMIN_ROLES == {"admin"}
+        assert {"admin"} == ADMIN_ROLES
 
     def test_viewer_roles_contains_all_three(self):
-        assert VIEWER_ROLES == {"admin", "editor", "viewer"}
+        assert {"admin", "editor", "viewer"} == VIEWER_ROLES

@@ -1,4 +1,5 @@
 """Password hashing utilities using bcrypt with SHA-256 migration support."""
+
 import hashlib
 import hmac
 import re

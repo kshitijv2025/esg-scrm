@@ -1,8 +1,7 @@
 """Admin API routes — user management, API keys, org settings, audit log."""
+
 import secrets
 import uuid
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.middleware.auth import require_auth
@@ -19,6 +18,7 @@ def _require_admin(user: dict) -> None:
 # ---------------------------------------------------------------------------
 # Users
 # ---------------------------------------------------------------------------
+
 
 @router.get("/users")
 def list_users(user: dict = Depends(require_auth)):
@@ -138,6 +138,7 @@ def deactivate_user(user_id: str, user: dict = Depends(require_auth)):
 # Organization
 # ---------------------------------------------------------------------------
 
+
 class OrgUpdateRequest:
     def __init__(self, name: str = "", industry: str = "", country: str = ""):
         self.name = name
@@ -186,6 +187,7 @@ def update_org(body: dict, user: dict = Depends(require_auth)):
 # API Keys
 # ---------------------------------------------------------------------------
 
+
 @router.get("/api-keys")
 def list_api_keys(user: dict = Depends(require_auth)):
     """List API keys for the organization. Admin only."""
@@ -194,7 +196,7 @@ def list_api_keys(user: dict = Depends(require_auth)):
     conn = get_connection()
     try:
         rows = conn.execute(
-            """SELECT id, name, key_prefix, last_used, created_at
+            """SELECT id, name, last_used, created_at
                FROM api_keys WHERE org_id = ? ORDER BY created_at DESC""",
             (user["org_id"],),
         ).fetchall()
@@ -203,7 +205,7 @@ def list_api_keys(user: dict = Depends(require_auth)):
                 {
                     "id": r["id"],
                     "name": r["name"],
-                    "key": r["key_prefix"] + "..." if r["key_prefix"] else r["id"][:8] + "...",
+                    "key": r["id"][:8] + "...",
                     "last_used_at": r["last_used"],
                     "created_at": r["created_at"],
                 }
@@ -225,22 +227,15 @@ def create_api_key(body: dict, user: dict = Depends(require_auth)):
 
     # Store a SHA-256 hash of the key, not the key itself
     import hashlib
+
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
-    # Store first 8 chars of raw key as prefix for display
-    key_prefix = raw_key[:8]
 
     conn = get_connection()
     try:
-        # Add key_prefix column if it doesn't exist (for existing tables)
-        try:
-            conn.execute("ALTER TABLE api_keys ADD COLUMN key_prefix TEXT")
-        except Exception:
-            pass  # Column already exists
-
         conn.execute(
-            """INSERT INTO api_keys (id, org_id, user_id, key_hash, key_prefix, name)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (key_id, user["org_id"], user["sub"], key_hash, key_prefix, name),
+            """INSERT INTO api_keys (id, org_id, user_id, key_hash, name)
+               VALUES (?, ?, ?, ?, ?)""",
+            (key_id, user["org_id"], user["sub"], key_hash, name),
         )
         conn.commit()
 
@@ -294,6 +289,7 @@ def revoke_api_key(key_id: str, user: dict = Depends(require_auth)):
 # ---------------------------------------------------------------------------
 # Audit Log
 # ---------------------------------------------------------------------------
+
 
 @router.get("/audit-log")
 def list_audit_log(

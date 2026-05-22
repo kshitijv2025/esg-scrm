@@ -16,16 +16,12 @@ router = APIRouter()
 
 
 def _check_database() -> dict[str, Any]:
-    """Run SELECT 1 against PostgreSQL and measure latency."""
+    """Run SELECT 1 against PostgreSQL or SQLite and measure latency."""
     db_url = os.environ.get("DATABASE_URL", "")
-    if not db_url:
-        return {"status": "down", "error": "DATABASE_URL not set"}
-
-    is_postgres = db_url.startswith("postgresql://") or db_url.startswith("postgres://")
 
     start = time.perf_counter()
     try:
-        if is_postgres:
+        if db_url.startswith("postgresql://") or db_url.startswith("postgres://"):
             import psycopg2
 
             conn = psycopg2.connect(db_url)
@@ -72,7 +68,6 @@ def _check_mqtt() -> dict[str, Any]:
 
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=5) as resp:
-            data = resp.read()
             latency_ms = (time.perf_counter() - start) * 1000
             if resp.status == 200:
                 return {"status": "up", "latency_ms": round(latency_ms, 2)}

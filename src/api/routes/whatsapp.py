@@ -1,9 +1,9 @@
 """WhatsApp messaging API — send messages, questionnaires, and risk alerts to suppliers."""
+
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -11,8 +11,14 @@ from src.api.middleware.auth import require_auth
 from src.api.middleware.rbac import require_role, EDITOR_ROLES
 from src.connectors.whatsapp import WhatsAppClient, verify_webhook
 from src.db.database import (
-    get_connection, release_connection, _fetchone, _execute, _fetchall,
-    fetch_response_based_coverage, validate_response_value, fetch_supplier,
+    get_connection,
+    release_connection,
+    _fetchone,
+    _execute,
+    _fetchall,
+    fetch_response_based_coverage,
+    validate_response_value,
+    fetch_supplier,
 )
 from src.ml.number_parsing import parse_number, detect_language
 
@@ -206,13 +212,16 @@ async def webhook(request: Request) -> dict[str, Any]:
             prev_cov = fetch_response_based_coverage(org_id)
             prev_coverage_pct = prev_cov.get("spend_weighted_coverage_pct", 0.0)
 
-            parse_result = _parse_questionnaire_response(conn, supplier_id, body_text, org_id, supplier)
+            parse_result = _parse_questionnaire_response(
+                conn, supplier_id, body_text, org_id, supplier
+            )
             stored_count = parse_result.get("stored_count", 0)
             discarded_count = parse_result.get("discarded_count", 0)
 
             # Send coverage notification after response recorded
             if supplier_name and prev_coverage_pct is not None:
                 from src.api.routes.questionnaires import _send_coverage_notification
+
                 _send_coverage_notification(org_id, supplier_name, prev_coverage_pct)
 
         return {
@@ -230,7 +239,7 @@ def _parse_questionnaire_response(
     supplier_id: str,
     body_text: str,
     org_id: str,
-    supplier: dict[str, Any] | None = None,
+    supplier: Optional[dict[str, Any]] = None,
 ) -> dict[str, int]:
     """Parse a questionnaire response from a WhatsApp reply.
 
@@ -314,7 +323,7 @@ def _parse_questionnaire_response(
 
         # Try to parse as a numeric value using language-aware parser
         # (handles Bengali: shat/hazar/lakh/crore; Vietnamese: ngh×n/triệu/tỷ)
-        response_value: float | None = None
+        response_value: Optional[float] = None
         parsed = parse_number(answer, language=number_lang)
         if parsed is not None:
             response_value = parsed
@@ -341,8 +350,14 @@ def _parse_questionnaire_response(
                    SET response_text = ?, response_value = ?, responded_at = datetime('now'),
                        channel = 'whatsapp', validation_status = ?, validation_notes = ?
                    WHERE supplier_id = ? AND question_id = ?""",
-                (answer, response_value, validation_status, validation_notes,
-                 supplier_id, question_id),
+                (
+                    answer,
+                    response_value,
+                    validation_status,
+                    validation_notes,
+                    supplier_id,
+                    question_id,
+                ),
             )
         else:
             _execute(
@@ -351,8 +366,15 @@ def _parse_questionnaire_response(
                    (org_id, supplier_id, tier, question_id, response_text, response_value,
                     channel, validation_status, validation_notes)
                    VALUES (?, ?, 1, ?, ?, ?, 'whatsapp', ?, ?)""",
-                (org_id, supplier_id, question_id, answer, response_value,
-                 validation_status, validation_notes),
+                (
+                    org_id,
+                    supplier_id,
+                    question_id,
+                    answer,
+                    response_value,
+                    validation_status,
+                    validation_notes,
+                ),
             )
 
         stored_count += 1
@@ -360,7 +382,8 @@ def _parse_questionnaire_response(
     if stored_count > 0:
         _execute(
             conn,
-            "UPDATE suppliers SET questionnaire_status = 'responded', updated_at = datetime('now') WHERE id = ?",
+            "UPDATE suppliers SET questionnaire_status = 'responded', "
+            "updated_at = datetime('now') WHERE id = ?",
             (supplier_id,),
         )
         logger.info(

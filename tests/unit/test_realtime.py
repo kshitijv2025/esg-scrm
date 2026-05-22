@@ -1,10 +1,12 @@
 """Tests for realtime alert bus and risk detector."""
+
 import sys
+
 sys.path.insert(0, "src")
 
+from src.db.seed import seed
 from src.realtime.alerts import AlertBus, get_bus
 from src.realtime.risk_detector import THRESHOLDS, check_latest_metrics
-from src.db.seed import seed
 
 
 class TestAlertBus:
@@ -19,8 +21,9 @@ class TestAlertBus:
 
     def test_broadcast_with_no_connections(self):
         import asyncio
+
         bus = AlertBus()
-        asyncio.get_event_loop().run_until_complete(bus.broadcast({"type": "test"}))
+        asyncio.run(bus.broadcast({"type": "test"}))
         assert len(bus._connections) == 0
 
 
@@ -32,7 +35,7 @@ class TestRiskDetector:
         assert "energy_kwh" in THRESHOLDS
         assert "water_m3" in THRESHOLDS
         assert "diesel_consumed" in THRESHOLDS
-        for key, t in THRESHOLDS.items():
+        for _key, t in THRESHOLDS.items():
             assert "max" in t
             assert "severity" in t
             assert "text" in t

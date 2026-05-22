@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from src.api.middleware.auth import require_auth
-from src.api.middleware.rbac import EDITOR_ROLES, VIEWER_ROLES, require_role
+from src.api.middleware.rbac import EDITOR_ROLES, require_role
 from src.db.database import get_connection, release_connection
 
 router = APIRouter()
