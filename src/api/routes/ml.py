@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.middleware.auth import require_auth
 from src.api.middleware.rbac import require_role, ADMIN_ROLES
@@ -110,17 +110,21 @@ def post_train_feedback(
         if not isinstance(entry, dict):
             raise HTTPException(
                 status_code=400,
-                detail=f"Entry at index {i} must be a JSON object with supplier_id and expected_level",
+                detail=(
+                    f"Entry at index {i} must be a JSON object with supplier_id and expected_level"
+                ),
             )
         if "supplier_id" not in entry or "expected_level" not in entry:
             raise HTTPException(
                 status_code=400,
-                detail=f"Entry at index {i} missing required fields: supplier_id, expected_level",
+                detail=(f"Entry at index {i} missing required fields: supplier_id, expected_level"),
             )
         if entry["expected_level"] not in ("low", "medium", "high", "critical"):
             raise HTTPException(
                 status_code=400,
-                detail=f"Entry at index {i}: expected_level must be one of low, medium, high, critical",
+                detail=(
+                    f"Entry at index {i}: expected_level must be one of low, medium, high, critical"
+                ),
             )
 
     old_weights = _load_current_weights()

@@ -5,6 +5,7 @@ Sends questionnaires, risk alerts, and ad-hoc messages to suppliers
 via the WhatsApp Business API. Falls back to demo mode (no-op) when
 Twilio credentials are not configured.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -16,7 +17,7 @@ from typing import Any, Optional
 
 import requests
 
-from src.db.database import get_connection, release_connection, _fetchone, _fetchall, _execute
+from src.db.database import get_connection, release_connection, _fetchone, _execute
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +69,7 @@ class WhatsAppClient:
             logger.info("whatsapp.send.demo to=%s body_len=%d", to, len(body))
             return {"status": "demo", "to": to, "body": body}
 
-        url = (
-            f"{TWILIO_API_BASE}/Accounts/{self.account_sid}"
-            "/Messages.json"
-        )
+        url = f"{TWILIO_API_BASE}/Accounts/{self.account_sid}/Messages.json"
         payload = {
             "From": f"whatsapp:{self.from_number}",
             "To": to,
@@ -108,9 +106,7 @@ class WhatsAppClient:
             "to": to,
         }
 
-    def send_questionnaire(
-        self, supplier_id: str, template_id: int = 0
-    ) -> dict[str, Any]:
+    def send_questionnaire(self, supplier_id: str, template_id: int = 0) -> dict[str, Any]:
         """Send an ESG questionnaire to a supplier via WhatsApp.
 
         Fetches the supplier's phone number from the database, retrieves
@@ -185,7 +181,13 @@ class WhatsAppClient:
             # Update supplier questionnaire status and record sent timestamp
             _execute(
                 conn,
-                "UPDATE suppliers SET questionnaire_status = 'pending', questionnaire_sent_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+                (
+                    "UPDATE suppliers "
+                    "SET questionnaire_status = 'pending', "
+                    "questionnaire_sent_at = datetime('now'), "
+                    "updated_at = datetime('now') "
+                    "WHERE id = ?"
+                ),
                 (supplier_id,),
             )
 
@@ -200,9 +202,7 @@ class WhatsAppClient:
         finally:
             release_connection(conn)
 
-    def send_risk_alert(
-        self, supplier_id: str, alert_text: str
-    ) -> dict[str, Any]:
+    def send_risk_alert(self, supplier_id: str, alert_text: str) -> dict[str, Any]:
         """Send a risk alert notification to a supplier via WhatsApp.
 
         Parameters
@@ -285,9 +285,7 @@ class WhatsAppClient:
         return f"whatsapp:{phone}"
 
     @staticmethod
-    def _resolve_template(
-        conn: Any, template_id: int, supplier: dict
-    ) -> Optional[dict]:
+    def _resolve_template(conn: Any, template_id: int, supplier: dict) -> Optional[dict]:
         """Fetch a questionnaire template from the database.
 
         If *template_id* is 0, picks the first active template matching
@@ -306,7 +304,11 @@ class WhatsAppClient:
 
         template = _fetchone(
             conn,
-            "SELECT * FROM questionnaire_templates WHERE tier = ? AND is_active = 1 AND (org_id = ? OR org_id = '') ORDER BY id LIMIT 1",
+            (
+                "SELECT * FROM questionnaire_templates "
+                "WHERE tier = ? AND is_active = 1 AND (org_id = ? OR org_id = '') "
+                "ORDER BY id LIMIT 1"
+            ),
             (tier_num, org_id),
         )
         if template is None:
@@ -319,8 +321,7 @@ class WhatsAppClient:
 
     @staticmethod
     def _format_questionnaire(
-        supplier_name: str, questions: list[dict], template_name: str,
-        country_code: str = ""
+        supplier_name: str, questions: list[dict], template_name: str, country_code: str = ""
     ) -> str:
         """Build a human-readable WhatsApp message body from questions.
 

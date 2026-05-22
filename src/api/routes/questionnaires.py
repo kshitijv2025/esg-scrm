@@ -1,21 +1,33 @@
 """
 Questionnaire API — backed by SQLite database + questionnaire engine.
 """
-import logging
 
-from fastapi import APIRouter, Depends, Body, HTTPException
+from __future__ import annotations
+from typing import Optional
+
+import logging
+import re
+
+from fastapi import APIRouter, Depends, Body, HTTPException, Query
 
 from src.api.middleware.auth import require_auth
 from src.db.database import (
-    fetch_suppliers, fetch_supplier, fetch_coverage_stats,
-    fetch_questionnaire_responses,
+    fetch_suppliers,
+    fetch_supplier,
+    fetch_coverage_stats,
     fetch_response_based_coverage,
-    get_connection, release_connection, _fetchall, _fetchone, _execute,
+    get_connection,
+    release_connection,
+    _fetchall,
+    _fetchone,
+    _execute,
     is_postgres as _is_postgres,
     validate_response_value,
 )
 from src.supplier.questionnaire import (
-    get_tier_questions, get_all_tiers, TIER_NAMES, ALL_QUESTIONS,
+    get_tier_questions,
+    get_all_tiers,
+    TIER_NAMES,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,7 +36,11 @@ router = APIRouter()
 
 
 @router.get("/suppliers")
-def list_suppliers(user: dict = Depends(require_auth)):
+def list_suppliers(
+    user: dict = Depends(require_auth),
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(100, ge=1, le=1000, description="Max records to return"),
+):
     org_id = user["org_id"]
     suppliers = fetch_suppliers(org_id=org_id)
     return {"suppliers": suppliers, "total": len(suppliers)}
@@ -45,12 +61,16 @@ def get_questionnaire(qnr_id: str, user: dict = Depends(require_auth)):
     conn = get_connection()
     try:
         # 1. Fetch template
-        template = _fetchone(conn, """
+        template = _fetchone(
+            conn,
+            """
             SELECT id, org_id, name, description, tier, category, is_active,
                    created_at, updated_at
             FROM questionnaire_templates
             WHERE id = ?
-        """, (qnr_id,))
+        """,
+            (qnr_id,),
+        )
         if not template:
             raise HTTPException(status_code=404, detail="Questionnaire not found")
 
@@ -62,20 +82,26 @@ def get_questionnaire(qnr_id: str, user: dict = Depends(require_auth)):
         template_id = template["id"]
 
         # 2. Fetch questions for this template
-        question_rows = _fetchall(conn, """
+        question_rows = _fetchall(
+            conn,
+            """
             SELECT id, template_id, question_text, question_type, choices,
                    sort_order, required
             FROM questionnaire_questions
             WHERE template_id = ?
             ORDER BY sort_order
-        """, (template_id,))
+        """,
+            (template_id,),
+        )
 
         # 3. Fetch responses for these questions, scoped to this org
         # Responses use question_id as a text field; join to match by question id
         question_ids = [str(q["id"]) for q in question_rows]
         if question_ids:
             placeholders = ",".join("?" for _ in question_ids)
-            response_rows = _fetchall(conn, f"""
+            response_rows = _fetchall(
+                conn,
+                f"""
                 SELECT qr.supplier_id, qr.question_id, qr.response_text,
                        qr.response_value, qr.channel, qr.responded_at,
                        s.name as supplier_name
@@ -84,7 +110,9 @@ def get_questionnaire(qnr_id: str, user: dict = Depends(require_auth)):
                 WHERE qr.question_id IN ({placeholders})
                   AND qr.org_id = ?
                 ORDER BY qr.responded_at
-            """, (*question_ids, org_id))
+            """,
+                (*question_ids, org_id),
+            )
         else:
             response_rows = []
 
@@ -108,22 +136,24 @@ def get_questionnaire(qnr_id: str, user: dict = Depends(require_auth)):
 
             # Use the latest response for display
             latest = responses[-1] if responses else None
-            questions_out.append({
-                "id": q["id"],
-                "number": str(idx + 1),
-                "text": q["question_text"],
-                "question_type": q["question_type"],
-                "choices": q["choices"],
-                "sort_order": q["sort_order"],
-                "required": bool(q["required"]),
-                "answered": has_response,
-                "response_text": latest["response_text"] if latest else None,
-                "response_value": latest["response_value"] if latest else None,
-                "supplier_id": latest["supplier_id"] if latest else None,
-                "supplier_name": latest["supplier_name"] if latest else None,
-                "channel": latest["channel"] if latest else None,
-                "submitted_at": latest["responded_at"] if latest else None,
-            })
+            questions_out.append(
+                {
+                    "id": q["id"],
+                    "number": str(idx + 1),
+                    "text": q["question_text"],
+                    "question_type": q["question_type"],
+                    "choices": q["choices"],
+                    "sort_order": q["sort_order"],
+                    "required": bool(q["required"]),
+                    "answered": has_response,
+                    "response_text": latest["response_text"] if latest else None,
+                    "response_value": latest["response_value"] if latest else None,
+                    "supplier_id": latest["supplier_id"] if latest else None,
+                    "supplier_name": latest["supplier_name"] if latest else None,
+                    "channel": latest["channel"] if latest else None,
+                    "submitted_at": latest["responded_at"] if latest else None,
+                }
+            )
 
         total_questions = len(question_rows)
         pending = total_questions - answered_count
@@ -186,13 +216,17 @@ def get_supplier_questionnaire_data(supplier_id: str, user: dict = Depends(requi
         tier_str = str(supplier.get("tier", "tier1")).lower()
         tier_num = tier_map.get(tier_str, 1)
 
-        template = _fetchone(conn, """
+        template = _fetchone(
+            conn,
+            """
             SELECT * FROM questionnaire_templates
             WHERE tier = ? AND is_active = 1
               AND (org_id = ? OR org_id = '' OR org_id IS NULL)
             ORDER BY CASE WHEN org_id = ? THEN 0 ELSE 1 END, id
             LIMIT 1
-        """, (tier_num, org_id, org_id))
+        """,
+            (tier_num, org_id, org_id),
+        )
 
         if not template:
             return {
@@ -207,22 +241,30 @@ def get_supplier_questionnaire_data(supplier_id: str, user: dict = Depends(requi
 
         # 3. Fetch questions with bilingual text
         country_code = supplier.get("country", "")
-        question_rows = _fetchall(conn, """
+        question_rows = _fetchall(
+            conn,
+            """
             SELECT id, question_id, question_text, question_text_bn, question_text_vi,
                    question_type, choices, sort_order, required
             FROM questionnaire_questions
             WHERE template_id = ?
             ORDER BY sort_order
-        """, (template_id,))
+        """,
+            (template_id,),
+        )
 
         # 4. Fetch existing responses for this supplier
-        response_rows = _fetchall(conn, """
+        response_rows = _fetchall(
+            conn,
+            """
             SELECT qr.*, qq.question_id as q_id
             FROM questionnaire_responses qr
             JOIN questionnaire_questions qq ON qr.question_id = qq.id
             WHERE qr.supplier_id = ? AND qq.template_id = ?
             ORDER BY qq.sort_order
-        """, (supplier_id, template_id))
+        """,
+            (supplier_id, template_id),
+        )
 
         # Build response lookup: question_id -> latest response
         response_map: dict[str, dict] = {}
@@ -248,20 +290,22 @@ def get_supplier_questionnaire_data(supplier_id: str, user: dict = Depends(requi
             elif country_code in ("VN", "VNM") and q["question_text_vi"]:
                 text = q["question_text_vi"]
 
-            questions_out.append({
-                "id": q["id"],
-                "question_id": q_id,
-                "text": text,
-                "text_en": q["question_text"],
-                "text_bn": q["question_text_bn"] or "",
-                "text_vi": q["question_text_vi"] or "",
-                "question_type": q["question_type"],
-                "choices": q["choices"],
-                "sort_order": q["sort_order"],
-                "required": bool(q["required"]),
-                "answered": has_response,
-                "responses": [resp] if resp else [],
-            })
+            questions_out.append(
+                {
+                    "id": q["id"],
+                    "question_id": q_id,
+                    "text": text,
+                    "text_en": q["question_text"],
+                    "text_bn": q["question_text_bn"] or "",
+                    "text_vi": q["question_text_vi"] or "",
+                    "question_type": q["question_type"],
+                    "choices": q["choices"],
+                    "sort_order": q["sort_order"],
+                    "required": bool(q["required"]),
+                    "answered": has_response,
+                    "responses": [resp] if resp else [],
+                }
+            )
 
         total_questions = len(question_rows)
         if answered_count == 0:
@@ -319,14 +363,18 @@ def whatsapp_preview(supplier_id: str, user: dict = Depends(require_auth)):
     conn = get_connection()
     try:
         # 2. Find the latest active template for this org
-        template_row = _fetchone(conn, """
+        template_row = _fetchone(
+            conn,
+            """
             SELECT id, name, description, tier, category, is_active
             FROM questionnaire_templates
             WHERE (org_id = ? OR org_id = '' OR org_id IS NULL)
               AND is_active = 1
             ORDER BY CASE WHEN org_id = ? THEN 0 ELSE 1 END, created_at DESC
             LIMIT 1
-        """, (org_id, org_id))
+        """,
+            (org_id, org_id),
+        )
 
         # 3. Build message_preview and supplier_response_example
         if not template_row:
@@ -348,12 +396,16 @@ def whatsapp_preview(supplier_id: str, user: dict = Depends(require_auth)):
             template_id = template_row["id"]
 
             # Get questions with sort_order
-            question_rows = _fetchall(conn, """
+            question_rows = _fetchall(
+                conn,
+                """
                 SELECT id, question_text, question_type, choices, sort_order, required
                 FROM questionnaire_questions
                 WHERE template_id = ?
                 ORDER BY sort_order
-            """, (template_id,))
+            """,
+                (template_id,),
+            )
 
             # Build message_preview using the same format as WhatsAppClient._format_questionnaire
             lines: list[str] = []
@@ -364,7 +416,6 @@ def whatsapp_preview(supplier_id: str, user: dict = Depends(require_auth)):
                 lines.append(f"{i}. {text}")
                 if qtype == "number":
                     lines.append(f"   Reply: {i}. [value in unit]")
-                    unit = ""  # unit not stored in DB; use placeholder
                 elif qtype == "choice":
                     lines.append(f"   Reply: {i}. [your answer]")
                 else:
@@ -393,10 +444,14 @@ def whatsapp_preview(supplier_id: str, user: dict = Depends(require_auth)):
             supplier_spend = supplier.get("annual_spend_usd", 0) or 0.0
 
             # Total org spend across all suppliers
-            total_row = _fetchone(conn, """
+            total_row = _fetchone(
+                conn,
+                """
                 SELECT COALESCE(SUM(annual_spend_usd), 0) as total
                 FROM suppliers WHERE org_id = ?
-            """, (org_id,))
+            """,
+                (org_id,),
+            )
             total_org_spend = total_row["total"] or 0.0
 
             current = fetch_response_based_coverage(org_id)
@@ -470,8 +525,7 @@ def coverage_stats_v2(user: dict = Depends(require_auth)):
     stats = fetch_coverage_stats(org_id=org_id)
     suppliers = fetch_suppliers(org_id=org_id)
     responded_spend = sum(
-        s["annual_spend_usd"] for s in suppliers
-        if s.get("questionnaire_status") == "responded"
+        s["annual_spend_usd"] for s in suppliers if s.get("questionnaire_status") == "responded"
     )
     total_spend = sum(s["annual_spend_usd"] for s in suppliers)
     return {
@@ -494,39 +548,47 @@ def response_summary(user: dict = Depends(require_auth)):
     org_id = user["org_id"]
     conn = get_connection()
     try:
-        total_suppliers_row = _fetchall(conn, """
+        total_suppliers_row = _fetchall(
+            conn,
+            """
             SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ?
-        """, (org_id,))
+        """,
+            (org_id,),
+        )
         total_suppliers = total_suppliers_row[0]["cnt"] if total_suppliers_row else 0
 
-        responded_row = _fetchall(conn, """
+        responded_row = _fetchall(
+            conn,
+            """
             SELECT COUNT(DISTINCT supplier_id) as cnt
             FROM questionnaire_responses
             WHERE org_id = ?
-        """, (org_id,))
+        """,
+            (org_id,),
+        )
         total_responded = responded_row[0]["cnt"] if responded_row else 0
-
-        avg_confidence_row = _fetchall(conn, """
-            SELECT COUNT(*) as cnt
-            FROM questionnaire_responses
-            WHERE org_id = ?
-        """, (org_id,))
         # questionnaire_responses table does not have a confidence column;
         # avg_confidence defaults to 0 until the column is added.
         avg_confidence = 0.0
 
-        channel_rows = _fetchall(conn, """
+        channel_rows = _fetchall(
+            conn,
+            """
             SELECT channel, COUNT(*) as cnt
             FROM questionnaire_responses
             WHERE org_id = ?
             GROUP BY channel
-        """, (org_id,))
+        """,
+            (org_id,),
+        )
         by_channel = {}
         for row in channel_rows:
             by_channel[row["channel"]] = row["cnt"]
 
         total_pending = total_suppliers - total_responded
-        response_rate = round(total_responded / total_suppliers * 100, 1) if total_suppliers > 0 else 0
+        response_rate = (
+            round(total_responded / total_suppliers * 100, 1) if total_suppliers > 0 else 0
+        )
     finally:
         release_connection(conn)
 
@@ -591,6 +653,7 @@ def send_questionnaire_by_email(
 # POST /dispatch-bulk — Bulk questionnaire dispatch
 # ---------------------------------------------------------------------------
 
+
 @router.post("/dispatch-bulk")
 def dispatch_bulk(
     body: dict,
@@ -618,7 +681,9 @@ def dispatch_bulk(
     org_id = user["org_id"]
 
     if not supplier_ids:
-        raise HTTPException(status_code=400, detail="supplier_ids is required and must be non-empty")
+        raise HTTPException(
+            status_code=400, detail="supplier_ids is required and must be non-empty"
+        )
 
     if not isinstance(supplier_ids, list):
         raise HTTPException(status_code=400, detail="supplier_ids must be a list")
@@ -635,11 +700,14 @@ def dispatch_bulk(
         for sid in supplier_ids:
             supplier = _fetchone(
                 conn,
-                "SELECT id, name, phone, email, preferred_channel, org_id FROM suppliers WHERE id = ?",
+                "SELECT id, name, phone, email, preferred_channel, org_id "
+                "FROM suppliers WHERE id = ?",
                 (sid,),
             )
             if not supplier:
-                results.append({"supplier_id": sid, "status": "error", "detail": "Supplier not found"})
+                results.append(
+                    {"supplier_id": sid, "status": "error", "detail": "Supplier not found"}
+                )
                 continue
             if supplier.get("org_id") and supplier["org_id"] != org_id:
                 results.append({"supplier_id": sid, "status": "error", "detail": "Access denied"})
@@ -662,20 +730,25 @@ def dispatch_bulk(
                 )
 
             if result.get("status") in ("sent", "demo"):
-                results.append({
-                    "supplier_id": sid,
-                    "supplier_name": supplier["name"],
-                    "status": "dispatched",
-                    "channel": "whatsapp" if use_whatsapp else "email",
-                    "message_id": result.get("message_sid") or result.get("smtp_message_id", ""),
-                })
+                results.append(
+                    {
+                        "supplier_id": sid,
+                        "supplier_name": supplier["name"],
+                        "status": "dispatched",
+                        "channel": "whatsapp" if use_whatsapp else "email",
+                        "message_id": result.get("message_sid")
+                        or result.get("smtp_message_id", ""),
+                    }
+                )
             else:
-                results.append({
-                    "supplier_id": sid,
-                    "supplier_name": supplier["name"],
-                    "status": "error",
-                    "detail": result.get("detail", "Unknown error"),
-                })
+                results.append(
+                    {
+                        "supplier_id": sid,
+                        "supplier_name": supplier["name"],
+                        "status": "error",
+                        "detail": result.get("detail", "Unknown error"),
+                    }
+                )
     finally:
         release_connection(conn)
 
@@ -713,7 +786,9 @@ def non_responders(user: dict = Depends(require_auth)):
     org_id = user["org_id"]
     conn = get_connection()
     try:
-        rows = _fetchall(conn, """
+        rows = _fetchall(
+            conn,
+            """
             SELECT s.id as supplier_id, s.name, s.country,
                    s.annual_spend_usd, s.tier
             FROM suppliers s
@@ -724,7 +799,9 @@ def non_responders(user: dict = Depends(require_auth)):
                   WHERE org_id = ?
               )
             ORDER BY s.annual_spend_usd DESC
-        """, (org_id, org_id))
+        """,
+            (org_id, org_id),
+        )
     finally:
         release_connection(conn)
 
@@ -754,7 +831,9 @@ def chasing_status(user: dict = Depends(require_auth)):
                 (julianday('now') - julianday(m.sent_at))
             """
 
-        rows = _fetchall(conn, f"""
+        rows = _fetchall(
+            conn,
+            f"""
             SELECT
                 s.id AS supplier_id,
                 s.name,
@@ -779,7 +858,9 @@ def chasing_status(user: dict = Depends(require_auth)):
                   WHERE qr.org_id = ?
               )
             ORDER BY ({days_sql}) DESC NULLS LAST
-        """, (org_id, org_id))
+        """,
+            (org_id, org_id),
+        )
     finally:
         release_connection(conn)
 
@@ -791,6 +872,7 @@ def chasing_status(user: dict = Depends(require_auth)):
 # ---------------------------------------------------------------------------
 # POST /responses/manual — Manual data entry by staff
 # ---------------------------------------------------------------------------
+
 
 @router.post("/responses/manual")
 def submit_manual_response(
@@ -855,7 +937,7 @@ def submit_manual_response(
             response_value = item.get("response_value")
 
             # Parse numeric value for validation
-            numeric_value: float | None = None
+            numeric_value: Optional[float] = None
             try:
                 if response_value is not None:
                     numeric_value = float(str(response_value).replace(",", ""))
@@ -871,7 +953,9 @@ def submit_manual_response(
                 validation_status, validation_notes = "verified", ""
 
             if _is_postgres():
-                _execute(conn, """
+                _execute(
+                    conn,
+                    """
                     INSERT INTO questionnaire_responses
                         (org_id, supplier_id, tier, question_id, response_text,
                          response_value, channel, validation_status, validation_notes,
@@ -884,31 +968,61 @@ def submit_manual_response(
                         validation_status = EXCLUDED.validation_status,
                         validation_notes = EXCLUDED.validation_notes,
                         responded_at = NOW()
-                """, (org_id, supplier_id, tier_num, question_id,
-                      response_text, numeric_value, validation_status, validation_notes))
+                """,
+                    (
+                        org_id,
+                        supplier_id,
+                        tier_num,
+                        question_id,
+                        response_text,
+                        numeric_value,
+                        validation_status,
+                        validation_notes,
+                    ),
+                )
             else:
                 # SQLite: delete existing row then insert (upsert without ON CONFLICT)
-                _execute(conn, """
+                _execute(
+                    conn,
+                    """
                     DELETE FROM questionnaire_responses
                     WHERE org_id = ? AND supplier_id = ? AND question_id = ?
-                """, (org_id, supplier_id, question_id))
-                _execute(conn, """
+                """,
+                    (org_id, supplier_id, question_id),
+                )
+                _execute(
+                    conn,
+                    """
                     INSERT INTO questionnaire_responses
                         (org_id, supplier_id, tier, question_id, response_text,
                          response_value, channel, validation_status, validation_notes,
                          responded_at)
                     VALUES (?, ?, ?, ?, ?, ?, 'manual', ?, ?,
                             datetime('now'))
-                """, (org_id, supplier_id, tier_num, question_id,
-                      response_text, numeric_value, validation_status, validation_notes))
+                """,
+                    (
+                        org_id,
+                        supplier_id,
+                        tier_num,
+                        question_id,
+                        response_text,
+                        numeric_value,
+                        validation_status,
+                        validation_notes,
+                    ),
+                )
 
             entered += 1
 
-        _execute(conn, """
+        _execute(
+            conn,
+            """
             UPDATE suppliers
             SET questionnaire_status = 'responded', updated_at = datetime('now')
             WHERE id = ?
-        """, (supplier_id,))
+        """,
+            (supplier_id,),
+        )
 
         # Send coverage notification after responses are recorded
         if entered > 0:
@@ -952,7 +1066,9 @@ def supplier_responses(supplier_id: str, user: dict = Depends(require_auth)):
     org_id = user["org_id"]
     conn = get_connection()
     try:
-        rows = _fetchall(conn, """
+        rows = _fetchall(
+            conn,
+            """
             SELECT
                 qr.question_id,
                 qq.question_text,
@@ -965,7 +1081,9 @@ def supplier_responses(supplier_id: str, user: dict = Depends(require_auth)):
                 ON qr.question_id = CAST(qq.id AS TEXT)
             WHERE qr.supplier_id = ? AND qr.org_id = ?
             ORDER BY qr.responded_at
-        """, (supplier_id, org_id))
+        """,
+            (supplier_id, org_id),
+        )
     finally:
         release_connection(conn)
 
@@ -996,19 +1114,23 @@ def supplier_prefill(supplier_id: str, tier: int = 1, user: dict = Depends(requi
     conn = get_connection()
     try:
         # Fetch any existing Scope 3 records for this supplier
-        scope3_rows = _fetchall(conn, """
+        scope3_rows = _fetchall(
+            conn,
+            """
             SELECT category, annual_spend_usd, scope3_tco2e,
                    calculation_method, data_source, recorded_at
             FROM supplier_scope3
             WHERE supplier_id = ? AND org_id = ?
-        """, (supplier_id, org_id))
+        """,
+            (supplier_id, org_id),
+        )
     finally:
         release_connection(conn)
 
     # Spend-based intensity factors for energy questions (same as validation)
     spend_intensity: dict[str, tuple[float, str]] = {
-        "t1e_01": (0.5, "kWh"),   # electricity kWh per USD spend
-        "t1e_02": (0.005, "L"),    # diesel litres per USD spend
+        "t1e_01": (0.5, "kWh"),  # electricity kWh per USD spend
+        "t1e_02": (0.005, "L"),  # diesel litres per USD spend
     }
 
     prefill: dict[str, dict] = {}
@@ -1027,8 +1149,8 @@ def supplier_prefill(supplier_id: str, tier: int = 1, user: dict = Depends(requi
 
     # Actual Scope 1 / Scope 2 data from supplier records (overrides spend-based estimates)
     # GHG Protocol categories that map to Scope 1 and Scope 2 questionnaire questions
-    scope1_qid = "t1e_03"   # "Have you measured your Scope 1 emissions?"
-    scope2_qid = "t1e_04"   # "Have you measured your Scope 2 emissions?"
+    scope1_qid = "t1e_03"  # "Have you measured your Scope 1 emissions?"
+    scope2_qid = "t1e_04"  # "Have you measured your Scope 2 emissions?"
     scope1_cats = {"FUEL_COMBUSTION", "STATIONARY_COMBUSTION", "SCOPE1", "MOBILE_COMBUSTION"}
     scope2_cats = {"PURCHASED_GOODS", "PURCHASED_GOODS_SERVICES", "SCOPE2", "ELECTRICITY"}
 
@@ -1087,7 +1209,9 @@ def supplier_timeline(supplier_id: str, user: dict = Depends(require_auth)):
     conn = get_connection()
     try:
         # Fetch all responses for this supplier, ordered by time
-        all_rows = _fetchall(conn, """
+        all_rows = _fetchall(
+            conn,
+            """
             SELECT
                 qr.question_id,
                 qr.response_value,
@@ -1097,12 +1221,15 @@ def supplier_timeline(supplier_id: str, user: dict = Depends(require_auth)):
             FROM questionnaire_responses qr
             WHERE qr.supplier_id = ? AND qr.org_id = ?
             ORDER BY qr.responded_at
-        """, (supplier_id, org_id))
+        """,
+            (supplier_id, org_id),
+        )
     finally:
         release_connection(conn)
 
     # Group rows by YYYY-MM period
     from collections import defaultdict
+
     periods_dict: dict[str, list] = defaultdict(list)
     for row in all_rows:
         responded_at = row.get("responded_at") or ""
@@ -1113,7 +1240,7 @@ def supplier_timeline(supplier_id: str, user: dict = Depends(require_auth)):
     sorted_periods = sorted(periods_dict.keys(), reverse=True)
 
     # Build per-question value series across periods
-    question_series: dict[str, dict[str, float | None]] = defaultdict(dict)
+    question_series: dict[str, dict[str, Optional[float]]] = defaultdict(dict)
     for period, rows in periods_dict.items():
         for row in rows:
             qid = row.get("question_id", "")
@@ -1127,12 +1254,14 @@ def supplier_timeline(supplier_id: str, user: dict = Depends(require_auth)):
         unique_questions = len({r.get("question_id") for r in rows})
         # Coverage for this period: count of unique questions with responses
         # We'll compute a simple coverage ratio vs total possible questions
-        period_snapshots.append({
-            "period": period,
-            "responded_at": rows[0].get("responded_at", ""),
-            "questions_answered": unique_questions,
-            "total_responses": len(rows),
-        })
+        period_snapshots.append(
+            {
+                "period": period,
+                "responded_at": rows[0].get("responded_at", ""),
+                "questions_answered": unique_questions,
+                "total_responses": len(rows),
+            }
+        )
 
     # Build per-question trends
     trends = []
@@ -1156,14 +1285,20 @@ def supplier_timeline(supplier_id: str, user: dict = Depends(require_auth)):
                 else:
                     trajectory = "stable"
 
-        trends.append({
-            "question_id": qid,
-            "trajectory": trajectory,
-            "change_pct": change_pct,
-            "latest_value": series.get(sorted_series_periods[0]) if sorted_series_periods else None,
-            "previous_value": series.get(sorted_series_periods[1]) if len(sorted_series_periods) > 1 else None,
-            "period_count": len(sorted_series_periods),
-        })
+        trends.append(
+            {
+                "question_id": qid,
+                "trajectory": trajectory,
+                "change_pct": change_pct,
+                "latest_value": series.get(sorted_series_periods[0])
+                if sorted_series_periods
+                else None,
+                "previous_value": series.get(sorted_series_periods[1])
+                if len(sorted_series_periods) > 1
+                else None,
+                "period_count": len(sorted_series_periods),
+            }
+        )
 
     # Overall trajectory: compare coverage across periods
     overall_trajectory = "no_data"
@@ -1234,13 +1369,17 @@ def resend_questionnaire(
     conn = get_connection()
     try:
         for sid in target_ids:
-            _execute(conn, """
+            _execute(
+                conn,
+                """
                 UPDATE suppliers
                 SET questionnaire_status = 'pending',
                     questionnaire_sent_at = COALESCE(questionnaire_sent_at, datetime('now')),
                     updated_at = datetime('now')
                 WHERE id = ?
-            """, (sid,))
+            """,
+                (sid,),
+            )
     finally:
         release_connection(conn)
 
@@ -1254,6 +1393,7 @@ def resend_questionnaire(
 # ---------------------------------------------------------------------------
 # POST /chase — Automated escalation workflow
 # ---------------------------------------------------------------------------
+
 
 @router.post("/chase")
 def run_chase_workflow(
@@ -1287,7 +1427,9 @@ def run_chase_workflow(
     # Date arithmetic differs by dialect
     if _is_postgres():
         days_since_sql = """
-            EXTRACT(EPOCH FROM (NOW() AT TIME ZONE 'UTC' - questionnaire_sent_at::TIMESTAMP)) / 86400.0
+            EXTRACT(EPOCH FROM (
+                NOW() AT TIME ZONE 'UTC' - questionnaire_sent_at::TIMESTAMP
+            )) / 86400.0
         """
     else:
         days_since_sql = """
@@ -1297,7 +1439,9 @@ def run_chase_workflow(
     conn = get_connection()
     try:
         # Find all pending suppliers with a sent timestamp
-        pending = _fetchall(conn, f"""
+        pending = _fetchall(
+            conn,
+            f"""
             SELECT
                 s.id,
                 s.name,
@@ -1312,7 +1456,9 @@ def run_chase_workflow(
               AND s.questionnaire_status = 'pending'
               AND s.questionnaire_sent_at IS NOT NULL
             ORDER BY s.questionnaire_sent_at ASC
-        """, (org_id,))
+        """,
+            (org_id,),
+        )
 
         email_reminders_sent = []
         email_reminder_errors = []
@@ -1326,10 +1472,7 @@ def run_chase_workflow(
         for sup in pending:
             sid = sup["id"]
             days = float(sup["days_since_sent"]) if sup["days_since_sent"] else 0.0
-            reminder_needed = (
-                sup["email_reminder_sent"] == 0
-                and days >= EMAIL_REMINDER_DAYS
-            )
+            reminder_needed = sup["email_reminder_sent"] == 0 and days >= EMAIL_REMINDER_DAYS
             nonresponsive_needed = days >= NONRESPONSIVE_DAYS
 
             if not dry_run:
@@ -1341,82 +1484,108 @@ def run_chase_workflow(
                         org_id=org_id,
                     )
                     if result.get("status") in ("sent", "demo"):
-                        _execute(conn, """
+                        _execute(
+                            conn,
+                            """
                             UPDATE suppliers
                             SET email_reminder_sent = 1, updated_at = datetime('now')
                             WHERE id = ?
-                        """, (sid,))
-                        email_reminders_sent.append({
-                            "supplier_id": sid,
-                            "supplier_name": sup["name"],
-                            "days_since_sent": round(days, 1),
-                            "channel": result.get("status", "unknown"),
-                        })
+                        """,
+                            (sid,),
+                        )
+                        email_reminders_sent.append(
+                            {
+                                "supplier_id": sid,
+                                "supplier_name": sup["name"],
+                                "days_since_sent": round(days, 1),
+                                "channel": result.get("status", "unknown"),
+                            }
+                        )
                     else:
-                        email_reminder_errors.append({
-                            "supplier_id": sid,
-                            "supplier_name": sup["name"],
-                            "error": result.get("detail", "unknown error"),
-                        })
+                        email_reminder_errors.append(
+                            {
+                                "supplier_id": sid,
+                                "supplier_name": sup["name"],
+                                "error": result.get("detail", "unknown error"),
+                            }
+                        )
 
                 if nonresponsive_needed:
                     # Raise risk flag
                     flag_id = f"flag_nresp_{uuid.uuid4().hex[:8]}"
-                    _execute(conn, """
+                    _execute(
+                        conn,
+                        """
                         INSERT INTO risk_flags
                             (id, org_id, factory_id, flag_text, cluster, severity,
                              days_overdue, priority_score, created_at, acknowledged)
                         VALUES (?, ?, 'factory_bd_001', ?, 'G5', 'WARNING',
                                 ?, ?, datetime('now'), 0)
-                    """, (
-                        flag_id,
-                        org_id,
-                        f"Supplier '{sup['name']}' has not responded to ESG questionnaire "
-                        f"within {NONRESPONSIVE_DAYS} days of initial contact. "
-                        f"Manual follow-up required.",
-                        int(days),
-                        min(3.0 + (days - NONRESPONSIVE_DAYS) * 0.1, 9.0),
-                    ))
-                    _execute(conn, """
+                    """,
+                        (
+                            flag_id,
+                            org_id,
+                            f"Supplier '{sup['name']}' has not responded to ESG questionnaire "
+                            f"within {NONRESPONSIVE_DAYS} days of initial contact. "
+                            f"Manual follow-up required.",
+                            int(days),
+                            min(3.0 + (days - NONRESPONSIVE_DAYS) * 0.1, 9.0),
+                        ),
+                    )
+                    _execute(
+                        conn,
+                        """
                         UPDATE suppliers
                         SET questionnaire_status = 'non_responsive', updated_at = datetime('now')
                         WHERE id = ?
-                    """, (sid,))
-                    nonresponsive.append({
-                        "supplier_id": sid,
-                        "supplier_name": sup["name"],
-                        "days_since_sent": round(days, 1),
-                    })
+                    """,
+                        (sid,),
+                    )
+                    nonresponsive.append(
+                        {
+                            "supplier_id": sid,
+                            "supplier_name": sup["name"],
+                            "days_since_sent": round(days, 1),
+                        }
+                    )
 
             else:
                 # Dry-run: just classify
                 if reminder_needed:
-                    email_reminders_sent.append({
-                        "supplier_id": sid,
-                        "supplier_name": sup["name"],
-                        "days_since_sent": round(days, 1),
-                    })
+                    email_reminders_sent.append(
+                        {
+                            "supplier_id": sid,
+                            "supplier_name": sup["name"],
+                            "days_since_sent": round(days, 1),
+                        }
+                    )
                 elif sup["email_reminder_sent"] == 1:
                     already_email_reminded.append(sid)
                 else:
-                    not_yet_due_for_email.append({
-                        "supplier_id": sid,
-                        "supplier_name": sup["name"],
-                        "days_since_sent": round(days, 1),
-                    })
+                    not_yet_due_for_email.append(
+                        {
+                            "supplier_id": sid,
+                            "supplier_name": sup["name"],
+                            "days_since_sent": round(days, 1),
+                        }
+                    )
 
                 if nonresponsive_needed:
-                    nonresponsive.append({
-                        "supplier_id": sid,
-                        "supplier_name": sup["name"],
-                        "days_since_sent": round(days, 1),
-                    })
+                    nonresponsive.append(
+                        {
+                            "supplier_id": sid,
+                            "supplier_name": sup["name"],
+                            "days_since_sent": round(days, 1),
+                        }
+                    )
                 else:
-                    not_yet_due_for_nonresponsive.append({
-                        "supplier_id": sid,
-                        "supplier_name": sup["name"],
-                        "days_since_sent": round(days, 1),
-                    })
+                    not_yet_due_for_nonresponsive.append(
+                        {
+                            "supplier_id": sid,
+                            "supplier_name": sup["name"],
+                            "days_since_sent": round(days, 1),
+                        }
+                    )
 
         logger.info(
             "chase_workflow.completed",
@@ -1468,7 +1637,7 @@ def get_tier(tier: int, user: dict = Depends(require_auth)):
     """Get questions for a specific tier from the questionnaire engine."""
     questions = get_tier_questions(tier)
     if not questions:
-        return {"error": "tier not found"}, 404
+        raise HTTPException(status_code=404, detail="tier not found")
     return {
         "tier": tier,
         "name": TIER_NAMES.get(tier, ""),
@@ -1490,6 +1659,7 @@ def get_tier(tier: int, user: dict = Depends(require_auth)):
 # ---------------------------------------------------------------------------
 # POST /portal/link/{supplier_id} — Generate portal access link (editor/admin)
 # ---------------------------------------------------------------------------
+
 
 @router.post("/portal/link/{supplier_id}")
 def generate_portal_link(
@@ -1515,11 +1685,15 @@ def generate_portal_link(
     conn = get_connection()
     try:
         # Verify supplier exists and belongs to org
-        supplier = _fetchone(conn, """
+        supplier = _fetchone(
+            conn,
+            """
             SELECT id, name, questionnaire_status
             FROM suppliers
             WHERE id = ? AND org_id = ?
-        """, (supplier_id, org_id))
+        """,
+            (supplier_id, org_id),
+        )
 
         if not supplier:
             raise HTTPException(status_code=404, detail="Supplier not found")
@@ -1530,13 +1704,17 @@ def generate_portal_link(
 
         now_sql = "datetime('now')" if not _is_postgres() else "(NOW() AT TIME ZONE 'UTC')"
 
-        _execute(conn, f"""
+        _execute(
+            conn,
+            f"""
             UPDATE suppliers
             SET portal_token = ?,
                 portal_token_expires = ?,
                 updated_at = {now_sql}
             WHERE id = ?
-        """, (raw_token, expires_at, supplier_id))
+        """,
+            (raw_token, expires_at, supplier_id),
+        )
 
         portal_url = f"/questionnaire/portal?token={raw_token}&supplier_id={supplier_id}"
 
@@ -1558,6 +1736,7 @@ def generate_portal_link(
 # Coverage notification helper
 # ---------------------------------------------------------------------------
 
+
 def _send_coverage_notification(
     org_id: str,
     supplier_name: str,
@@ -1577,15 +1756,17 @@ def _send_coverage_notification(
     # Find the org admin
     conn = get_connection()
     try:
-        admin = _fetchone(conn, """
+        admin = _fetchone(
+            conn,
+            """
             SELECT email FROM users
             WHERE org_id = ? AND role = 'admin' AND is_active = 1
             LIMIT 1
-        """, (org_id,))
+        """,
+            (org_id,),
+        )
         if not admin:
-            logger.warning(
-                "coverage_notification.no_admin org_id=%s", org_id
-            )
+            logger.warning("coverage_notification.no_admin org_id=%s", org_id)
             return
         admin_email = admin["email"]
     finally:
@@ -1600,8 +1781,8 @@ Channel: web portal
 Coverage Update:
   Spend-weighted coverage: {new_coverage_pct}% (was {previous_coverage_pct}%)
   Improvement: +{improvement}%
-  Total suppliers responded: {coverage['responded_suppliers']} of {coverage['total_suppliers']}
-  Covered spend: ${coverage['covered_spend_usd']:,.0f} of ${coverage['total_spend_usd']:,.0f}
+  Total suppliers responded: {coverage["responded_suppliers"]} of {coverage["total_suppliers"]}
+  Covered spend: ${coverage["covered_spend_usd"]:,.0f} of ${coverage["total_spend_usd"]:,.0f}
 
 Log in to view details: /questionnaires
 """
@@ -1622,7 +1803,8 @@ Log in to view details: /questionnaires
     </tr>
     <tr>
       <td style="padding: 8px 0; color: #555;">New coverage</td>
-      <td style="text-align: right; font-weight: bold; font-size: 1.2em; color: #1a4731;">{new_coverage_pct}%</td>
+      <td style="text-align: right; font-weight: bold; font-size: 1.2em;
+            color: #1a4731;">{new_coverage_pct}%</td>
     </tr>
     <tr style="background: #e8f5e9;">
       <td style="padding: 8px 0;"><strong>Improvement</strong></td>
@@ -1631,10 +1813,12 @@ Log in to view details: /questionnaires
   </table>
   <hr style="margin: 20px 0;">
   <p style="color: #555; font-size: 0.9em;">
-    {coverage['responded_suppliers']} of {coverage['total_suppliers']} suppliers responded &mdash;
-    ${coverage['covered_spend_usd']:,.0f} of ${coverage['total_spend_usd']:,.0f} spend covered
+    {coverage["responded_suppliers"]} of {coverage["total_suppliers"]} suppliers responded &mdash;
+    ${coverage["covered_spend_usd"]:,.0f} of ${coverage["total_spend_usd"]:,.0f} spend covered
   </p>
-  <a href="/questionnaires" style="display: inline-block; background: #1a4731; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; margin-top: 8px;">
+  <a href="/questionnaires" style="display: inline-block; background: #1a4731;
+       color: white; padding: 10px 20px; text-decoration: none;
+       border-radius: 4px; margin-top: 8px;">
     View Questionnaires
   </a>
 </div>
@@ -1651,13 +1835,18 @@ Log in to view details: /questionnaires
     )
     logger.info(
         "coverage_notification.sent org_id=%s to=%s new_coverage=%.1f improvement=%.1f result=%s",
-        org_id, admin_email, new_coverage_pct, improvement, result.get("status", "unknown"),
+        org_id,
+        admin_email,
+        new_coverage_pct,
+        improvement,
+        result.get("status", "unknown"),
     )
 
 
 # ---------------------------------------------------------------------------
 # POST /portal/submit — Submit questionnaire via portal token (no JWT auth)
 # ---------------------------------------------------------------------------
+
 
 @router.post("/portal/submit")
 def submit_portal_response(
@@ -1681,12 +1870,16 @@ def submit_portal_response(
     conn = get_connection()
     try:
         # Validate portal token
-        supplier = _fetchone(conn, """
+        supplier = _fetchone(
+            conn,
+            """
             SELECT id, org_id, name, portal_token, portal_token_expires,
                    questionnaire_status
             FROM suppliers
             WHERE id = ? AND portal_token = ? AND portal_token_expires IS NOT NULL
-        """, (supplier_id, portal_token))
+        """,
+            (supplier_id, portal_token),
+        )
 
         if not supplier:
             raise HTTPException(status_code=401, detail="Invalid or expired portal token")
@@ -1723,7 +1916,7 @@ def submit_portal_response(
                 continue
 
             # Parse numeric value for validation
-            response_value: float | None = None
+            response_value: Optional[float] = None
             try:
                 cleaned = response_text.replace(",", "")
                 response_value = float(cleaned)
@@ -1738,24 +1931,40 @@ def submit_portal_response(
             else:
                 validation_status, validation_notes = "verified", ""
 
-            _execute(conn, f"""
+            _execute(
+                conn,
+                f"""
                 INSERT INTO questionnaire_responses
                     (org_id, supplier_id, tier, question_id, response_text, response_value,
                      responded_at, channel, validation_status, validation_notes)
                 VALUES (?, ?, ?, ?, ?, ?, {now_sql}, 'web', ?, ?)
-            """, (org_id, supplier_id, tier, question_id, response_text,
-                  response_value, validation_status, validation_notes))
+            """,
+                (
+                    org_id,
+                    supplier_id,
+                    tier,
+                    question_id,
+                    response_text,
+                    response_value,
+                    validation_status,
+                    validation_notes,
+                ),
+            )
             inserted += 1
 
         # Update supplier status to indicate web submission
-        _execute(conn, f"""
+        _execute(
+            conn,
+            f"""
             UPDATE suppliers
             SET questionnaire_status = 'received',
                 portal_token = NULL,
                 portal_token_expires = NULL,
                 updated_at = {now_sql}
             WHERE id = ?
-        """, (supplier_id,))
+        """,
+            (supplier_id,),
+        )
 
         # Send coverage notification after response is recorded
         if inserted > 0:
@@ -1773,7 +1982,9 @@ def submit_portal_response(
 
 
 @router.get("/whatsapp-template/{tier}")
-def get_whatsapp_template(tier: int, supplier_id: str = "sup_001", user: dict = Depends(require_auth)):
+def get_whatsapp_template(
+    tier: int, supplier_id: str = "sup_001", user: dict = Depends(require_auth)
+):
     """Generate WhatsApp message template for a tier + supplier."""
     questions = get_tier_questions(tier)
     if not questions:
@@ -1794,7 +2005,7 @@ def get_whatsapp_template(tier: int, supplier_id: str = "sup_001", user: dict = 
 
 Dear {supplier_name} Team,
 
-Please complete {TIER_NAMES.get(tier, '')} of the H&M ESG data request for Q1 2025.
+Please complete {TIER_NAMES.get(tier, "")} of the H&M ESG data request for Q1 2025.
 
 Reply with the question number followed by your answer.
 
@@ -1813,4 +2024,219 @@ Questions? Reply to this message.
         "supplier_name": supplier_name,
         "channel": "whatsapp",
         "message": message,
+    }
+
+
+# ---------------------------------------------------------------------------
+# B3.14: Auto-fill endpoint — GET /api/questionnaires/auto-fill/{template_id}/{supplier_id}
+# ---------------------------------------------------------------------------
+
+
+def _format_number(value: float, unit: str) -> str:
+    """Format a number with commas and append the unit."""
+    # Use integer format for whole numbers, float for decimals
+    if value == round(value):
+        formatted = f"{round(value):,}"
+    else:
+        formatted = f"{value:,.1f}"
+    return f"{formatted} {unit}" if unit else formatted
+
+
+def _format_currency(value: float) -> str:
+    """Format a USD currency value with commas."""
+    return f"${value:,.0f} USD"
+
+
+# Keyword → (metric cluster, unit) mapping
+_METRIC_KEYWORDS = [
+    (re.compile(r"\benergy\b|kwh", re.IGNORECASE), "energy_kwh", "kWh"),
+    (re.compile(r"\bwater\b|cubic meters", re.IGNORECASE), "water_m3", "m³"),
+    (re.compile(r"\bemission\b|ghg|tco2", re.IGNORECASE), "emissions_tco2", "tCO2e"),
+    (
+        re.compile(r"\bwaste\b.*\btonnes\b|\btonnes\b.*\bwaste\b", re.IGNORECASE),
+        "waste_tonnes",
+        "tonnes",
+    ),
+]
+
+# Supplier field keywords — more specific, avoid false matches
+# Order matters: more specific matches first
+_SUPPLIER_FIELD_KEYWORDS = [
+    # "spend with us" / "annual spend" — NOT "waste" or other words containing "spend"
+    (re.compile(r"\bspend\b", re.IGNORECASE), "annual_spend_usd", "currency"),
+    # revenue has no mapping → intentionally NOT listed here so it falls through to not_applicable
+    # country
+    (re.compile(r"\bcountry\b", re.IGNORECASE), "country", "text"),
+]
+
+
+@router.get("/auto-fill/{template_id}/{supplier_id}")
+def auto_fill_questionnaire(
+    template_id: str,
+    supplier_id: str,
+    user: dict = Depends(require_auth),
+):
+    """Auto-fill questionnaire questions from supplier and metrics data.
+
+    Maps question text keywords to supplier fields and metrics clusters,
+    returning structured responses with source attribution.
+    """
+    org_id = user["org_id"]
+
+    # Verify template exists and is accessible
+    conn = get_connection()
+    try:
+        template = _fetchone(
+            conn,
+            "SELECT id FROM questionnaire_templates "
+            "WHERE id = ? AND (org_id = ? OR org_id = '' OR org_id IS NULL)",
+            (template_id, org_id),
+        )
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        # Verify supplier exists and belongs to org
+        supplier = fetch_supplier(supplier_id)
+        if not supplier:
+            raise HTTPException(status_code=404, detail="Supplier not found")
+        if supplier.get("org_id") and supplier["org_id"] != org_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Fetch questions for template
+        questions = _fetchall(
+            conn,
+            """
+            SELECT question_id AS q_id, question_text AS text, question_type
+            FROM questionnaire_questions
+            WHERE template_id = ?
+            ORDER BY sort_order
+            """,
+            (template_id,),
+        )
+
+        # Fetch metrics for org
+        metrics = _fetchall(
+            conn,
+            "SELECT cluster, value, unit FROM metrics WHERE org_id = ?",
+            (org_id,),
+        )
+        metrics_by_cluster = {m["cluster"]: m for m in metrics}
+
+    finally:
+        release_connection(conn)
+
+    # Process each question
+    result_questions = []
+    auto_filled = 0
+    not_applicable = 0
+    needs_input = 0
+
+    for q in questions:
+        q_id = q["q_id"]
+        text = q["text"]
+        q_type = q["question_type"]
+
+        # Choice questions: not_applicable (no keyword matching)
+        if q_type == "choice":
+            result_questions.append(
+                {
+                    "q_id": q_id,
+                    "text": text,
+                    "status": "not_applicable",
+                    "value": None,
+                    "source": None,
+                }
+            )
+            not_applicable += 1
+            continue
+
+        # Try supplier field match
+        matched = False
+        for kw_regex, field, fmt in _SUPPLIER_FIELD_KEYWORDS:
+            if kw_regex.search(text):
+                value = supplier.get(field)
+                if value is not None:
+                    if fmt == "currency":
+                        display_value = _format_currency(value)
+                    else:
+                        display_value = str(value)
+                    result_questions.append(
+                        {
+                            "q_id": q_id,
+                            "text": text,
+                            "status": "auto_filled",
+                            "value": display_value,
+                            "source": f"suppliers.{field}",
+                        }
+                    )
+                    auto_filled += 1
+                else:
+                    result_questions.append(
+                        {
+                            "q_id": q_id,
+                            "text": text,
+                            "status": "needs_input",
+                            "value": None,
+                            "source": None,
+                        }
+                    )
+                    needs_input += 1
+                matched = True
+                break
+
+        if matched:
+            continue
+
+        # Try metric cluster match
+        for kw_regex, cluster, unit in _METRIC_KEYWORDS:
+            if kw_regex.search(text):
+                metric = metrics_by_cluster.get(cluster)
+                if metric and metric["value"] is not None:
+                    display_value = _format_number(metric["value"], unit)
+                    result_questions.append(
+                        {
+                            "q_id": q_id,
+                            "text": text,
+                            "status": "auto_filled",
+                            "value": display_value,
+                            "source": f"metrics.{cluster}",
+                        }
+                    )
+                    auto_filled += 1
+                else:
+                    result_questions.append(
+                        {
+                            "q_id": q_id,
+                            "text": text,
+                            "status": "needs_input",
+                            "value": None,
+                            "source": None,
+                        }
+                    )
+                    needs_input += 1
+                matched = True
+                break
+
+        if matched:
+            continue
+
+        # No keyword match → not_applicable
+        result_questions.append(
+            {"q_id": q_id, "text": text, "status": "not_applicable", "value": None, "source": None}
+        )
+        not_applicable += 1
+
+    applicable = auto_filled + needs_input
+    auto_fill_percentage = round((auto_filled / applicable * 100), 1) if applicable > 0 else 0.0
+
+    return {
+        "template_id": template_id,
+        "supplier_id": supplier_id,
+        "auto_fill_percentage": auto_fill_percentage,
+        "questions": result_questions,
+        "summary": {
+            "auto_filled": auto_filled,
+            "not_applicable": not_applicable,
+            "needs_input": needs_input,
+        },
     }

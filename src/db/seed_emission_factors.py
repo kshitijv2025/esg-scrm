@@ -14,6 +14,7 @@ Sources:
 
 Run:  python -m src.db.seed_emission_factors
 """
+
 from src.db.database import get_connection, release_connection, _execute
 
 # ---------------------------------------------------------------------------
@@ -89,7 +90,6 @@ FACTORS: list[tuple[str, str, float, str, str, str, int]] = [
         "IEA Emission Factors 2022",
         2022,
     ),
-
     # ------------------------------------------------------------------
     # Stationary combustion (Scope 1)
     # Source: GHG Protocol Cross-Sector Tools, March 2022, Stationary
@@ -150,7 +150,6 @@ FACTORS: list[tuple[str, str, float, str, str, str, int]] = [
         "GHG Protocol 2022 — Stationary Combustion",
         2022,
     ),
-
     # ------------------------------------------------------------------
     # Transport (Scope 1 / Scope 3 Category 4 & 9)
     # Source: DEFRA/DESNZ 2022 GHG Conversion Factors — Freight transport
@@ -228,7 +227,6 @@ FACTORS: list[tuple[str, str, float, str, str, str, int]] = [
         "DEFRA/DESNZ 2022 — Freight Transport",
         2022,
     ),
-
     # ------------------------------------------------------------------
     # Water supply
     # Source: GHG Protocol 2022 / DEFRA 2022 — Water supply factor
@@ -252,7 +250,6 @@ FACTORS: list[tuple[str, str, float, str, str, str, int]] = [
         "DEFRA/DESNZ 2022 — Water Treatment",
         2022,
     ),
-
     # ------------------------------------------------------------------
     # Scope 3 spend-based emission factors (Category 1 — Purchased Goods)
     # Source: GHG Protocol 2022, Scope 3 Calculation Guidance, Table 6.5
@@ -330,7 +327,6 @@ FACTORS: list[tuple[str, str, float, str, str, str, int]] = [
         "GHG Protocol 2022 — Scope 3 Spend-Based",
         2022,
     ),
-
     # ------------------------------------------------------------------
     # Refrigerants — GWP100 values (Scope 1 fugitive emissions)
     # Source: IPCC AR6, Working Group I, Chapter 7, Table 7.SM.7 (2021)
@@ -390,7 +386,6 @@ FACTORS: list[tuple[str, str, float, str, str, str, int]] = [
         "IPCC AR6 WG1 Ch7 Table 7.SM.7",
         2021,
     ),
-
     # ------------------------------------------------------------------
     # Waste disposal (Scope 3 Category 5)
     # Source: DEFRA/DESNZ 2022 — Waste disposal emission factors

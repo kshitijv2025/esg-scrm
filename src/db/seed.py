@@ -4,7 +4,6 @@ Works with both SQLite (dev/test) and PostgreSQL (production).
 Run once: python -m src.db.seed
 """
 
-import uuid
 from datetime import datetime, timezone
 
 from src.db.database import reset_database, get_connection, release_connection, _execute
@@ -53,8 +52,8 @@ def _seed_org_and_admin(conn) -> None:
     _execute(
         conn,
         """
-        INSERT INTO users (id, org_id, email, password_hash, full_name, role)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO users (id, org_id, email, password_hash, full_name, role, email_verified)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     """,
         (
             "usr_admin_001",
@@ -63,6 +62,7 @@ def _seed_org_and_admin(conn) -> None:
             hash_password("admin123"),
             "System Administrator",
             "admin",
+            1,  # email_verified
         ),
     )
 

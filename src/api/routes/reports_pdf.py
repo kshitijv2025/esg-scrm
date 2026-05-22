@@ -1,4 +1,5 @@
 """PDF Compliance Report generator for ESG SCRM platform."""
+
 import io
 from datetime import datetime
 
@@ -34,8 +35,13 @@ _BORDER = (200, 200, 200)
 def _safe(s: str) -> str:
     """Replace non-ASCII characters for Helvetica compatibility."""
     replacements = {
-        "—": "-", "–": "-", "²": "2", "³": "3",
-        "¹": "1", "°": "deg", "·": "-",
+        "—": "-",
+        "–": "-",
+        "²": "2",
+        "³": "3",
+        "¹": "1",
+        "°": "deg",
+        "·": "-",
     }
     for char, replacement in replacements.items():
         s = s.replace(char, replacement)
@@ -54,7 +60,8 @@ class _CompliancePDF(fpdf.FPDF):
         self.set_font("Helvetica", "I", 7)
         self.set_text_color(*_TEXT_DIM)
         self.cell(
-            0, 8,
+            0,
+            8,
             _safe(
                 "Bangladesh Export Textiles Ltd.  |  ESG Compliance Report  |  Page "
                 + str(self.page_no())
@@ -172,7 +179,9 @@ def _fetch_latest_metrics(org_id: str = "") -> list[dict]:
         release_connection(conn)
 
 
-_SEVERITY_ORDER = "CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'WARNING' THEN 2 WHEN 'INFO' THEN 3 ELSE 4 END"
+_SEVERITY_ORDER = (
+    "CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'WARNING' THEN 2 WHEN 'INFO' THEN 3 ELSE 4 END"
+)
 
 
 def _fetch_risk_flags_ordered(org_id: str = "") -> list[dict]:
@@ -226,17 +235,39 @@ def _fetch_supplier_summary(org_id: str = "") -> dict:
         params = (org_id,) if org_id else ()
 
         if org_id:
-            total_row = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ?", params)
-            tier_a = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ? AND risk_tier = 'A'", params)
-            tier_b = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ? AND risk_tier = 'B'", params)
-            tier_c = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ? AND risk_tier = 'C'", params)
-            responded = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ? AND questionnaire_status = 'responded'", params)
+            total_row = _fetchone(
+                conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ?", params
+            )
+            tier_a = _fetchone(
+                conn,
+                "SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ? AND risk_tier = 'A'",
+                params,
+            )
+            tier_b = _fetchone(
+                conn,
+                "SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ? AND risk_tier = 'B'",
+                params,
+            )
+            tier_c = _fetchone(
+                conn,
+                "SELECT COUNT(*) as cnt FROM suppliers WHERE org_id = ? AND risk_tier = 'C'",
+                params,
+            )
+            responded = _fetchone(
+                conn,
+                "SELECT COUNT(*) as cnt FROM suppliers "
+                "WHERE org_id = ? AND questionnaire_status = 'responded'",
+                params,
+            )
         else:
             total_row = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers")
             tier_a = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE risk_tier = 'A'")
             tier_b = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE risk_tier = 'B'")
             tier_c = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE risk_tier = 'C'")
-            responded = _fetchone(conn, "SELECT COUNT(*) as cnt FROM suppliers WHERE questionnaire_status = 'responded'")
+            responded = _fetchone(
+                conn,
+                "SELECT COUNT(*) as cnt FROM suppliers WHERE questionnaire_status = 'responded'",
+            )
 
         total = total_row["cnt"] if total_row else 0
         response_count = responded["cnt"] if responded else 0
@@ -256,6 +287,7 @@ def _fetch_supplier_summary(org_id: str = "") -> dict:
 # ---------------------------------------------------------------------------
 # PDF section renderers
 # ---------------------------------------------------------------------------
+
 
 def _render_cover_page(pdf: fpdf.FPDF) -> None:
     """Cover page with company name, report title, date, and reporting period."""
@@ -286,11 +318,23 @@ def _render_cover_page(pdf: fpdf.FPDF) -> None:
     pdf.set_xy(_MARGIN_L + 8, box_y + 5)
     pdf.set_font("Helvetica", "", 12)
     pdf.set_text_color(*_TEXT)
-    pdf.cell(0, 7, _safe("Report Date: " + datetime.utcnow().strftime("%d %B %Y")), new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(
+        0,
+        7,
+        _safe("Report Date: " + datetime.utcnow().strftime("%d %B %Y")),
+        new_x="LMARGIN",
+        new_y="NEXT",
+    )
 
     pdf.set_xy(_MARGIN_L + 8, box_y + 13)
     pdf.set_text_color(*_TEXT_DIM)
-    pdf.cell(0, 7, _safe("Reporting Period: September 2024 - January 2025"), new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(
+        0,
+        7,
+        _safe("Reporting Period: September 2024 - January 2025"),
+        new_x="LMARGIN",
+        new_y="NEXT",
+    )
 
     pdf.set_xy(_MARGIN_L + 8, box_y + 21)
     pdf.set_text_color(*_TEXT_DIM)
@@ -435,9 +479,11 @@ def _render_risk_flags(pdf: fpdf.FPDF, risk_flags: list[dict]) -> None:
         pdf.set_text_color(*color)
         cluster_display = flag.get("cluster", "").replace("_", " ").title()
         pdf.cell(
-            0, 5,
+            0,
+            5,
             _safe(f"[{severity}]  {cluster_display}"),
-            new_x="LMARGIN", new_y="NEXT",
+            new_x="LMARGIN",
+            new_y="NEXT",
         )
 
         # Flag text
@@ -445,9 +491,11 @@ def _render_risk_flags(pdf: fpdf.FPDF, risk_flags: list[dict]) -> None:
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(*_TEXT)
         pdf.cell(
-            0, 4,
+            0,
+            4,
             _safe(flag.get("flag_text", "")),
-            new_x="LMARGIN", new_y="NEXT",
+            new_x="LMARGIN",
+            new_y="NEXT",
         )
 
         # Created date
@@ -456,9 +504,14 @@ def _render_risk_flags(pdf: fpdf.FPDF, risk_flags: list[dict]) -> None:
         pdf.set_text_color(*_TEXT_DIM)
         created = flag.get("created_at", "")
         pdf.cell(
-            0, 4,
-            _safe(f"Created: {created[:10] if created else '-'}  |  Acknowledged: {'Yes' if flag.get('acknowledged') else 'No'}"),
-            new_x="LMARGIN", new_y="NEXT",
+            0,
+            4,
+            _safe(
+                f"Created: {created[:10] if created else '-'}  |  "
+                f"Acknowledged: {'Yes' if flag.get('acknowledged') else 'No'}"
+            ),
+            new_x="LMARGIN",
+            new_y="NEXT",
         )
 
         pdf.set_y(y0 + card_h + 3)
@@ -472,15 +525,21 @@ def _render_risk_flags(pdf: fpdf.FPDF, risk_flags: list[dict]) -> None:
     warning = sum(1 for f in risk_flags if f.get("severity") == "WARNING")
     info = sum(1 for f in risk_flags if f.get("severity") == "INFO")
     pdf.cell(
-        0, 6,
+        0,
+        6,
         _safe(f"Total: {total}  |  Critical: {critical}  |  Warning: {warning}  |  Info: {info}"),
-        new_x="LMARGIN", new_y="NEXT",
+        new_x="LMARGIN",
+        new_y="NEXT",
     )
 
 
 def _render_framework_mapping(pdf: fpdf.FPDF, mappings: list[dict], framework: str = "") -> None:
     """Framework mapping section showing disclosure codes and descriptions."""
-    title = f"Framework Mapping: {framework.upper()}" if framework else "Framework Mapping (All Frameworks)"
+    title = (
+        f"Framework Mapping: {framework.upper()}"
+        if framework
+        else "Framework Mapping (All Frameworks)"
+    )
     _section_heading(pdf, title)
     pdf.ln(2)
 
@@ -488,9 +547,11 @@ def _render_framework_mapping(pdf: fpdf.FPDF, mappings: list[dict], framework: s
         pdf.set_font("Helvetica", "I", 10)
         pdf.set_text_color(*_TEXT_DIM)
         pdf.cell(
-            0, 8,
+            0,
+            8,
             _safe(f"No mappings found{(' for ' + framework) if framework else ''}."),
-            new_x="LMARGIN", new_y="NEXT",
+            new_x="LMARGIN",
+            new_y="NEXT",
         )
         return
 
@@ -580,14 +641,47 @@ _VALID_FRAMEWORKS = {"gri", "tcfd", "csrd", "issb"}
 @router.get("/compliance-report")
 def generate_compliance_report(
     framework: str = Query(default=""),
+    period: str = Query(default=""),
     user: dict = Depends(require_auth),
 ):
     """Generate and return a downloadable PDF compliance report."""
     if framework and framework.lower() not in _VALID_FRAMEWORKS:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid framework '{framework}'. Must be one of: {', '.join(sorted(_VALID_FRAMEWORKS))}",
+            detail=f"Invalid framework '{framework}'. "
+            f"Must be one of: {', '.join(sorted(_VALID_FRAMEWORKS))}",
         )
+    if period:
+        import re
+
+        date_pattern = r"^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$"
+        if not re.match(date_pattern, period):
+            raise HTTPException(
+                status_code=400,
+                detail="period must match format YYYY-MM-DD_YYYY-MM-DD",
+            )
+        start_str, end_str = period.split("_")
+        try:
+            _start_year, start_month, start_day = (
+                int(start_str[:4]),
+                int(start_str[5:7]),
+                int(start_str[8:10]),
+            )
+            _end_year, end_month, end_day = (
+                int(end_str[:4]),
+                int(end_str[5:7]),
+                int(end_str[8:10]),
+            )
+            if not (1 <= start_month <= 12 and 1 <= end_month <= 12):
+                raise ValueError("Invalid month")
+            # Validate days in month (simple check)
+            if not (1 <= start_day <= 31 and 1 <= end_day <= 31):
+                raise ValueError("Invalid day")
+        except (ValueError, IndexError):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid date",
+            )
 
     # Fetch all data scoped to user's org
     org_id = user["org_id"]

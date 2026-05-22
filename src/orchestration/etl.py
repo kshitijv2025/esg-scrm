@@ -3,6 +3,7 @@ ETL Pipeline — orchestrates: data sources -> SQLite -> risk detection -> alert
 Runs every 60 seconds as a background loop.
 MQTT consumer runs continuously alongside the ETL cycle.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -11,9 +12,9 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from src.connectors.mqtt_client import SmartMeterConsumer, get_current_metrics
+from src.connectors.mqtt_client import SmartMeterConsumer
 from src.connectors.sap_b1_adapter import SAPBusinessOneAdapter
-from src.db.database import get_connection, DB_PATH
+from src.db.database import DB_PATH
 from src.evidence.hash_chain import compute_hash
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,19 @@ async def run_sap_ingestion(factory_id: str = "factory_bd_001") -> None:
     Skips records already present (dedup by cluster + recorded_at) so the
     ETL loop does not grow the metrics table with identical rows on every cycle.
     """
-    adapter = SAPBusinessOneAdapter()
+    # Look up org_id for this factory (needed for SAPBusinessOneAdapter)
+    from uuid import UUID
+
+    conn_lookup = sqlite3.connect(DB_PATH)
+    try:
+        row = conn_lookup.execute(
+            "SELECT org_id FROM factories WHERE id = ?", (factory_id,)
+        ).fetchone()
+        org_id = UUID(row["org_id"]) if row else UUID("00000000-0000-0000-0000-000000000001")
+    finally:
+        conn_lookup.close()
+
+    adapter = SAPBusinessOneAdapter(organization_id=org_id)
     records = adapter.get_utility_invoices(2025, 1)
     if not records:
         return
@@ -94,8 +107,15 @@ async def run_sap_ingestion(factory_id: str = "factory_bd_001") -> None:
             conn.execute(
                 """INSERT INTO evidence_chain (metric_id, cluster, hash, prev_hash, value, computed_at, source_system)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (metric_id, internal["cluster"], the_hash, prev_hash, internal["value"],
-                 datetime.now(timezone.utc).isoformat(), "sap_b1"),
+                (
+                    metric_id,
+                    internal["cluster"],
+                    the_hash,
+                    prev_hash,
+                    internal["value"],
+                    datetime.now(timezone.utc).isoformat(),
+                    "sap_b1",
+                ),
             )
             inserted += 1
 
@@ -109,6 +129,7 @@ async def run_sap_ingestion(factory_id: str = "factory_bd_001") -> None:
 async def etl_loop(interval: int = 60, factory_id: str = "factory_bd_001") -> None:
     """Main ETL loop — runs every `interval` seconds."""
     from src.realtime.risk_detector import detect_and_alert
+
     while True:
         try:
             await run_sap_ingestion(factory_id)
@@ -121,4 +142,5 @@ async def etl_loop(interval: int = 60, factory_id: str = "factory_bd_001") -> No
 def load_latest_metrics(factory_id: str = "factory_bd_001") -> list[dict[str, Any]]:
     """Return the latest metric record per cluster from SQLite."""
     from src.db.database import fetch_metrics
+
     return fetch_metrics(factory_id)

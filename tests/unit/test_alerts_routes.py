@@ -4,21 +4,23 @@ import sys
 
 sys.path.insert(0, "src")
 
-import pytest
+try:
+    from datetime import UTC, datetime, timedelta
+except ImportError:
+    from datetime import timezone, datetime, timedelta
 
-from datetime import datetime, timezone, timedelta
+    UTC = timezone.utc
+
+import pytest
 
 from src.db.database import (
     fetch_recent_matching_flag,
-    should_suppress_flag,
     get_connection,
     release_connection,
+    should_suppress_flag,
 )
 from src.db.seed import seed
-from src.realtime.alerts import (
-    _get_recommendation,
-    _should_escalate,
-)
+from src.realtime.alerts import _get_recommendation, _should_escalate
 
 
 class TestAlertDeduplication:
@@ -38,9 +40,9 @@ class TestAlertDeduplication:
         """Insert a risk flag directly for test setup."""
         conn = get_connection()
         try:
-            from datetime import datetime, timezone
+            from datetime import datetime
 
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             if acknowledged:
                 conn.execute(
                     """
@@ -186,35 +188,35 @@ class TestShouldEscalate:
 
     def test_no_escalate_when_already_critical(self):
         """CRITICAL flags never escalate."""
-        old_timestamp = (datetime.now(timezone.utc) - timedelta(hours=100)).isoformat()
+        old_timestamp = (datetime.now(UTC) - timedelta(hours=100)).isoformat()
         escalate, severity = _should_escalate(old_timestamp, "CRITICAL")
         assert escalate is False
         assert severity == "CRITICAL"
 
     def test_no_escalate_when_young_warning(self):
         """WARNING flags under 72h do not escalate."""
-        young_timestamp = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        young_timestamp = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
         escalate, severity = _should_escalate(young_timestamp, "WARNING")
         assert escalate is False
         assert severity == "WARNING"
 
     def test_escalate_when_old_warning(self):
         """WARNING flags over 72h escalate to CRITICAL."""
-        old_timestamp = (datetime.now(timezone.utc) - timedelta(hours=100)).isoformat()
+        old_timestamp = (datetime.now(UTC) - timedelta(hours=100)).isoformat()
         escalate, severity = _should_escalate(old_timestamp, "WARNING")
         assert escalate is True
         assert severity == "CRITICAL"
 
     def test_no_escalate_when_young_info(self):
         """INFO flags under 72h do not escalate."""
-        young_timestamp = (datetime.now(timezone.utc) - timedelta(hours=10)).isoformat()
+        young_timestamp = (datetime.now(UTC) - timedelta(hours=10)).isoformat()
         escalate, severity = _should_escalate(young_timestamp, "INFO")
         assert escalate is False
         assert severity == "INFO"
 
     def test_escalate_when_old_info(self):
         """INFO flags over 72h escalate to CRITICAL."""
-        old_timestamp = (datetime.now(timezone.utc) - timedelta(hours=200)).isoformat()
+        old_timestamp = (datetime.now(UTC) - timedelta(hours=200)).isoformat()
         escalate, severity = _should_escalate(old_timestamp, "INFO")
         assert escalate is True
         assert severity == "CRITICAL"

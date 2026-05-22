@@ -1,15 +1,13 @@
 """Tests for admin API — D7.1."""
 
 import hashlib
-import json
 import sys
 import uuid
-
-import pytest
 
 sys.path.insert(0, "src")
 
 from fastapi.testclient import TestClient
+
 from src.api.main import app
 from src.auth.jwt import create_token
 from src.db.database import get_connection, release_connection
@@ -68,15 +66,14 @@ def _create_api_key(
     key_id: str = None,
     name: str = "Test Key",
     user_id: str = None,
-    key_prefix: str = "esg_abc1",
 ):
     kid = key_id or f"key_{uuid.uuid4().hex[:8]}"
-    key_hash = hashlib.sha256("test_key_xyz".encode()).hexdigest()
+    key_hash = hashlib.sha256(b"test_key_xyz").hexdigest()
     conn.execute(
         """INSERT OR REPLACE INTO api_keys
-           (id, org_id, user_id, key_hash, key_prefix, name)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (kid, org_id, user_id or "usr_admin_001", key_hash, key_prefix, name),
+           (id, org_id, user_id, key_hash, name)
+           VALUES (?, ?, ?, ?, ?)""",
+        (kid, org_id, user_id or "usr_admin_001", key_hash, name),
     )
     conn.commit()
     return kid
@@ -322,10 +319,8 @@ class TestAPIKeys:
         conn = get_connection()
         try:
             _create_user(conn, org_id, "usr_key_admin", "keyadmin@test.com", "admin")
-            _create_api_key(
-                conn, org_id, "key_list_001", "Production Key", "usr_key_admin", "esg_pro1"
-            )
-            _create_api_key(conn, org_id, "key_list_002", "Dev Key", "usr_key_admin", "esg_dev1")
+            _create_api_key(conn, org_id, "key_list_001", "Production Key", "usr_key_admin")
+            _create_api_key(conn, org_id, "key_list_002", "Dev Key", "usr_key_admin")
         finally:
             release_connection(conn)
 
@@ -386,12 +381,12 @@ class TestAPIKeys:
         conn = get_connection()
         try:
             _create_user(conn, org_id, "usr_revoke_key", "revokekey@test.com", "admin")
-            key_id = _create_api_key(conn, org_id, "key_revoke_001", "Revoke Me", "usr_revoke_key")
+            _create_api_key(conn, org_id, "key_revoke_001", "Revoke Me", "usr_revoke_key")
         finally:
             release_connection(conn)
 
         headers = _admin_headers(org_id, "usr_revoke_key")
-        resp = client.delete(f"/api/admin/api-keys/key_revoke_001", headers=headers)
+        resp = client.delete("/api/admin/api-keys/key_revoke_001", headers=headers)
 
         assert resp.status_code == 200
         data = resp.json()

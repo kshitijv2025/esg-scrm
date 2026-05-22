@@ -9,10 +9,13 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.api.middleware.auth import require_auth
-from src.api.middleware.rbac import EDITOR_ROLES, VIEWER_ROLES, require_role
+from src.api.middleware.rbac import EDITOR_ROLES, require_role
 from src.db.database import get_connection, release_connection
 
 router = APIRouter()
+
+ALLOWED_STATUSES = {"open", "in_progress", "completed", "cancelled"}
+ALLOWED_PRIORITIES = {"low", "medium", "high", "critical"}
 
 
 def _action_to_dict(row: dict) -> dict:
@@ -60,7 +63,10 @@ def list_actions(
             query += " AND supplier_id = ?"
             params.append(supplier_id)
 
-        query += " ORDER BY CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, created_at DESC"
+        query += (
+            " ORDER BY CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 "
+            "WHEN 'medium' THEN 3 ELSE 4 END, created_at DESC"
+        )
         query += " LIMIT ? OFFSET ?"
         params.extend([limit, skip])
 
@@ -96,6 +102,13 @@ def create_action(
     require_role(user, EDITOR_ROLES)
     org_id = user["org_id"]
 
+    status = payload.get("status", "open")
+    priority = payload.get("priority", "medium")
+    if status not in ALLOWED_STATUSES:
+        raise HTTPException(400, f"status must be one of {sorted(ALLOWED_STATUSES)}")
+    if priority not in ALLOWED_PRIORITIES:
+        raise HTTPException(400, f"priority must be one of {sorted(ALLOWED_PRIORITIES)}")
+
     action_id = f"ca_{uuid.uuid4().hex[:12]}"
     now = datetime.now(timezone.utc).isoformat()
 
@@ -113,8 +126,8 @@ def create_action(
                 payload.get("flag_id"),
                 payload["title"],
                 payload.get("description", ""),
-                payload.get("status", "open"),
-                payload.get("priority", "medium"),
+                status,
+                priority,
                 payload.get("assigned_to"),
                 payload.get("deadline"),
                 now,
@@ -137,6 +150,12 @@ def update_action(
     """Update a corrective action. Requires editor role."""
     require_role(user, EDITOR_ROLES)
     org_id = user["org_id"]
+
+    # Validate enum fields against allowlists
+    if "status" in payload and payload["status"] not in ALLOWED_STATUSES:
+        raise HTTPException(400, f"status must be one of {sorted(ALLOWED_STATUSES)}")
+    if "priority" in payload and payload["priority"] not in ALLOWED_PRIORITIES:
+        raise HTTPException(400, f"priority must be one of {sorted(ALLOWED_PRIORITIES)}")
 
     conn = get_connection()
     try:

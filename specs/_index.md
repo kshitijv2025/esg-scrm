@@ -19,6 +19,9 @@ ESG SCRM is a commercial ESG compliance platform for mid-market manufacturers in
 | `supplier-engagement.md` | Engagement     | WhatsApp questionnaire templates, response capture, coverage stats, multi-language dispatch                  |
 | `evidence-vault.md`      | Evidence       | Hash chain integrity, methodology tagging, emission factor references, data lineage, auditor export          |
 | `risk-alerts.md`         | Risk           | ML-generated risk flags, configurable thresholds, alert deduplication, acknowledgment workflow               |
+| `billing.md`             | Billing        | Stripe subscriptions, plan tiers, webhook events, supplier limit enforcement                                 |
+| `gdpr.md`                | GDPR           | Data export (Article 20), account deletion (Article 17), soft-delete, 30-day retention                       |
+| `multi-org.md`           | Multi-Org      | Per-org role scoping, org switch, invitations, member management, role resolution                            |
 
 ---
 

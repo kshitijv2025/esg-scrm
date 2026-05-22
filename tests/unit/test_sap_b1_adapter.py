@@ -1,9 +1,8 @@
 """Tests for SAP B1 adapter — demo mode, live mode, auth failure handling."""
+
 import os
 import sys
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 sys.path.insert(0, "src")
 
@@ -16,10 +15,11 @@ class TestSAPBusinessOneAdapterDemoMode:
 
     def test_health_check_demo_mode(self):
         """health_check() returns demo mode status with connected=True."""
+        from uuid import uuid4
         from src.connectors.sap_b1_adapter import SAPBusinessOneAdapter
 
         with patch.dict(os.environ, {"ERP_MODE": "demo"}):
-            adapter = SAPBusinessOneAdapter()
+            adapter = SAPBusinessOneAdapter(organization_id=uuid4())
             result = adapter.health_check()
 
         assert result["mode"] == "demo"
@@ -28,10 +28,11 @@ class TestSAPBusinessOneAdapterDemoMode:
 
     def test_get_utility_invoices_demo_mode_no_csv(self):
         """get_utility_invoices() returns empty list when CSV is absent."""
+        from uuid import uuid4
         from src.connectors.sap_b1_adapter import SAPBusinessOneAdapter
 
         with patch.dict(os.environ, {"ERP_MODE": "demo"}):
-            adapter = SAPBusinessOneAdapter()
+            adapter = SAPBusinessOneAdapter(organization_id=uuid4())
             # Without the CSV file present, returns []
             result = adapter.get_utility_invoices(2025, 1)
 
@@ -39,9 +40,10 @@ class TestSAPBusinessOneAdapterDemoMode:
 
     def test_to_internal_metric_maps_fields(self):
         """to_internal_metric() correctly maps SAP record to internal schema."""
+        from uuid import uuid4
         from src.connectors.sap_b1_adapter import SAPBusinessOneAdapter
 
-        adapter = SAPBusinessOneAdapter()
+        adapter = SAPBusinessOneAdapter(organization_id=uuid4())
         sap_record = {
             "cluster": "energy.grid",
             "value": "1234.5",
@@ -63,9 +65,10 @@ class TestSAPBusinessOneAdapterDemoMode:
 
     def test_to_internal_metric_defaults(self):
         """to_internal_metric() uses sensible defaults for missing fields."""
+        from uuid import uuid4
         from src.connectors.sap_b1_adapter import SAPBusinessOneAdapter
 
-        adapter = SAPBusinessOneAdapter()
+        adapter = SAPBusinessOneAdapter(organization_id=uuid4())
         result = adapter.to_internal_metric({})
 
         assert result["cluster"] == "unknown"
@@ -86,10 +89,13 @@ class TestSAPBusinessOneAdapterLiveMode:
 
     def test_health_check_live_missing_url(self):
         """health_check() returns error dict when SAP_B1_SERVER_URL is empty."""
+        from uuid import uuid4
         from src.connectors import sap_b1_adapter
 
         with patch.object(sap_b1_adapter, "ERP_MODE", "live"):
-            adapter = sap_b1_adapter.SAPBusinessOneAdapter(server_url="", api_key="")
+            adapter = sap_b1_adapter.SAPBusinessOneAdapter(
+                organization_id=uuid4(), server_url="", api_key=""
+            )
             result = adapter.health_check()
 
         assert result["mode"] == "live"
@@ -99,6 +105,7 @@ class TestSAPBusinessOneAdapterLiveMode:
 
     def test_health_check_live_auth_failure_401(self):
         """health_check() handles 401 gracefully without raising."""
+        from uuid import uuid4
         from src.connectors import sap_b1_adapter
 
         mock_response = MagicMock()
@@ -106,9 +113,11 @@ class TestSAPBusinessOneAdapterLiveMode:
 
         with patch.object(sap_b1_adapter, "ERP_MODE", "live"):
             adapter = sap_b1_adapter.SAPBusinessOneAdapter(
-                server_url="https://sap.example.com", api_key="test-key"
+                organization_id=uuid4(), server_url="https://sap.example.com", api_key="test-key"
             )
-            with patch.object(sap_b1_adapter.requests, "get", return_value=mock_response) as mock_get:
+            with patch.object(
+                sap_b1_adapter.requests, "get", return_value=mock_response
+            ) as mock_get:
                 result = adapter.health_check()
 
         assert result["mode"] == "live"
@@ -119,6 +128,7 @@ class TestSAPBusinessOneAdapterLiveMode:
 
     def test_health_check_live_auth_failure_403(self):
         """health_check() handles 403 gracefully without raising."""
+        from uuid import uuid4
         from src.connectors import sap_b1_adapter
 
         mock_response = MagicMock()
@@ -126,9 +136,11 @@ class TestSAPBusinessOneAdapterLiveMode:
 
         with patch.object(sap_b1_adapter, "ERP_MODE", "live"):
             adapter = sap_b1_adapter.SAPBusinessOneAdapter(
-                server_url="https://sap.example.com", api_key="test-key"
+                organization_id=uuid4(), server_url="https://sap.example.com", api_key="test-key"
             )
-            with patch.object(sap_b1_adapter.requests, "get", return_value=mock_response) as mock_get:
+            with patch.object(
+                sap_b1_adapter.requests, "get", return_value=mock_response
+            ) as mock_get:
                 result = adapter.health_check()
 
         assert result["mode"] == "live"
@@ -139,6 +151,7 @@ class TestSAPBusinessOneAdapterLiveMode:
 
     def test_health_check_live_success(self):
         """health_check() returns connected=True on 200 response."""
+        from uuid import uuid4
         from src.connectors import sap_b1_adapter
 
         mock_response = MagicMock()
@@ -146,9 +159,11 @@ class TestSAPBusinessOneAdapterLiveMode:
 
         with patch.object(sap_b1_adapter, "ERP_MODE", "live"):
             adapter = sap_b1_adapter.SAPBusinessOneAdapter(
-                server_url="https://sap.example.com", api_key="test-key"
+                organization_id=uuid4(), server_url="https://sap.example.com", api_key="test-key"
             )
-            with patch.object(sap_b1_adapter.requests, "get", return_value=mock_response) as mock_get:
+            with patch.object(
+                sap_b1_adapter.requests, "get", return_value=mock_response
+            ) as mock_get:
                 result = adapter.health_check()
 
         assert result["mode"] == "live"
@@ -159,12 +174,18 @@ class TestSAPBusinessOneAdapterLiveMode:
     def test_health_check_live_connection_error(self):
         """health_check() handles connection errors gracefully."""
         import requests
+        from uuid import uuid4
+
         from src.connectors import sap_b1_adapter
 
         with patch.object(sap_b1_adapter, "ERP_MODE", "live"):
-            adapter = sap_b1_adapter.SAPBusinessOneAdapter(server_url="https://sap.example.com")
+            adapter = sap_b1_adapter.SAPBusinessOneAdapter(
+                organization_id=uuid4(), server_url="https://sap.example.com"
+            )
             with patch.object(
-                sap_b1_adapter.requests, "get", side_effect=requests.exceptions.ConnectionError("Failed")
+                sap_b1_adapter.requests,
+                "get",
+                side_effect=requests.exceptions.ConnectionError("Failed"),
             ):
                 result = adapter.health_check()
 
@@ -175,10 +196,14 @@ class TestSAPBusinessOneAdapterLiveMode:
     def test_health_check_live_timeout(self):
         """health_check() handles timeout gracefully."""
         import requests
+        from uuid import uuid4
+
         from src.connectors import sap_b1_adapter
 
         with patch.object(sap_b1_adapter, "ERP_MODE", "live"):
-            adapter = sap_b1_adapter.SAPBusinessOneAdapter(server_url="https://sap.example.com")
+            adapter = sap_b1_adapter.SAPBusinessOneAdapter(
+                organization_id=uuid4(), server_url="https://sap.example.com"
+            )
             with patch.object(
                 sap_b1_adapter.requests, "get", side_effect=requests.exceptions.Timeout("timed out")
             ):
@@ -190,6 +215,7 @@ class TestSAPBusinessOneAdapterLiveMode:
 
     def test_get_utility_invoices_live_auth_failure(self):
         """get_utility_invoices() returns [] on 401/403 auth failure, not exception."""
+        from uuid import uuid4
         from src.connectors import sap_b1_adapter
 
         mock_response = MagicMock()
@@ -197,9 +223,11 @@ class TestSAPBusinessOneAdapterLiveMode:
 
         with patch.object(sap_b1_adapter, "ERP_MODE", "live"):
             adapter = sap_b1_adapter.SAPBusinessOneAdapter(
-                server_url="https://sap.example.com", api_key="test-key"
+                organization_id=uuid4(), server_url="https://sap.example.com", api_key="test-key"
             )
-            with patch.object(sap_b1_adapter.requests, "get", return_value=mock_response) as mock_get:
+            with patch.object(
+                sap_b1_adapter.requests, "get", return_value=mock_response
+            ) as mock_get:
                 result = adapter.get_utility_invoices(2025, 1)
 
         assert result == []
@@ -208,12 +236,18 @@ class TestSAPBusinessOneAdapterLiveMode:
     def test_get_utility_invoices_live_connection_error(self):
         """get_utility_invoices() returns [] on connection error, not exception."""
         import requests
+        from uuid import uuid4
+
         from src.connectors import sap_b1_adapter
 
         with patch.object(sap_b1_adapter, "ERP_MODE", "live"):
-            adapter = sap_b1_adapter.SAPBusinessOneAdapter(server_url="https://sap.example.com")
+            adapter = sap_b1_adapter.SAPBusinessOneAdapter(
+                organization_id=uuid4(), server_url="https://sap.example.com"
+            )
             with patch.object(
-                sap_b1_adapter.requests, "get", side_effect=requests.exceptions.ConnectionError("Failed")
+                sap_b1_adapter.requests,
+                "get",
+                side_effect=requests.exceptions.ConnectionError("Failed"),
             ):
                 result = adapter.get_utility_invoices(2025, 1)
 
@@ -221,6 +255,7 @@ class TestSAPBusinessOneAdapterLiveMode:
 
     def test_get_utility_invoices_live_success_parses_value(self):
         """get_utility_invoices() in live mode parses SAP B1 response correctly."""
+        from uuid import uuid4
         from src.connectors import sap_b1_adapter
 
         mock_response = MagicMock()
@@ -233,8 +268,12 @@ class TestSAPBusinessOneAdapterLiveMode:
         }
 
         with patch.object(sap_b1_adapter, "ERP_MODE", "live"):
-            adapter = sap_b1_adapter.SAPBusinessOneAdapter(server_url="https://sap.example.com")
-            with patch.object(sap_b1_adapter.requests, "get", return_value=mock_response) as mock_get:
+            adapter = sap_b1_adapter.SAPBusinessOneAdapter(
+                organization_id=uuid4(), server_url="https://sap.example.com"
+            )
+            with patch.object(
+                sap_b1_adapter.requests, "get", return_value=mock_response
+            ) as mock_get:
                 result = adapter.get_utility_invoices(2025, 1)
 
         assert len(result) == 2

@@ -18,19 +18,15 @@ Covers:
 """
 import hashlib
 import hmac
-import json
-import os
-from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.connectors.whatsapp import WhatsAppClient, verify_webhook
-from src.db.database import get_connection, _execute, _fetchone, reset_database
-from src.auth.jwt import create_token
 from src.api.routes.whatsapp import _parse_questionnaire_response
-
+from src.auth.jwt import create_token
+from src.connectors.whatsapp import WhatsAppClient, verify_webhook
+from src.db.database import _execute, _fetchone, get_connection, reset_database
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -7,10 +7,10 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
-from src.api.middleware.auth import optional_auth, require_auth
+from src.api.middleware.auth import require_auth
 from src.db.database import get_connection, release_connection
 
 # Auth-required router (included at /api/access)
@@ -69,7 +69,8 @@ def create_buyer_link(
     try:
         conn.execute(
             """INSERT INTO buyer_portal_access
-               (id, org_id, buyer_org_id, buyer_org_name, scope_filter, token, token_expires, created_by)
+               (id, org_id, buyer_org_id, buyer_org_name, scope_filter, token,
+                token_expires, created_by)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 access_id,

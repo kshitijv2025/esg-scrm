@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 import os
-import shutil
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -17,11 +16,13 @@ from fastapi.responses import JSONResponse
 from src.api.middleware.auth import require_auth
 from src.api.middleware.audit import AuditMiddleware
 from src.api.middleware.rate_limit import RateLimitMiddleware
+from src.realtime.alerts import ws_alerts_endpoint
 from src.api.routes import (
     admin,
     alerts,
     audit,
     auth,
+    billing,
     buyer_portal,
     corrective_actions,
     compliance,
@@ -31,9 +32,11 @@ from src.api.routes import (
     evidence,
     export,
     frameworks,
+    gdpr,
     health,
     ml,
     onboarding,
+    orgs,
     questionnaires,
     reports,
     reports_pdf,
@@ -72,7 +75,6 @@ if SENTRY_DSN:
         release=os.environ.get("APP_VERSION", "0.2.0"),
         traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
     )
-    logger.info("sentry.initialized dsn=%s", SENTRY_DSN[:20] + "...")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -80,6 +82,9 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+logger.info(
+    "sentry.initialized dsn=%s", (SENTRY_DSN[:20] if SENTRY_DSN else "not_configured") + "..."
+)
 
 
 class PrettyJSONResponse(JSONResponse):
@@ -168,8 +173,7 @@ app.add_middleware(AuditMiddleware)
 app.add_middleware(RateLimitMiddleware)
 
 app.include_router(dashboard.router, prefix="/api/dashboard", dependencies=[Depends(require_auth)])
-app.include_router(evidence.router, prefix="/api/evidence", dependencies=[Depends(require_auth)])
-app.include_router(evidence.auditor_router, prefix="/api/evidence")
+app.include_router(evidence.router, prefix="/api/evidence")
 app.include_router(
     frameworks.router, prefix="/api/frameworks", dependencies=[Depends(require_auth)]
 )
@@ -197,7 +201,9 @@ app.include_router(ml.router, prefix="/api/ml", dependencies=[Depends(require_au
 app.include_router(water.router, prefix="/api/water", dependencies=[Depends(require_auth)])
 app.include_router(trust.router, prefix="/api/trust", dependencies=[Depends(require_auth)])
 app.include_router(auth.router, prefix="/api/auth")
+app.include_router(billing.router, prefix="/api/billing")
 app.include_router(admin.router, prefix="/api/admin", dependencies=[Depends(require_auth)])
+app.include_router(gdpr.router, prefix="/api/gdpr", dependencies=[Depends(require_auth)])
 
 # Phase D: New routes
 app.include_router(
@@ -220,10 +226,9 @@ app.include_router(
 app.include_router(
     onboarding.router, prefix="/api/onboarding", dependencies=[Depends(require_auth)]
 )
+app.include_router(orgs.router, prefix="/api/orgs", dependencies=[Depends(require_auth)])
 
 app.include_router(health.router, prefix="/api", tags=["health"])
-
-from src.realtime.alerts import ws_alerts_endpoint
 
 app.websocket("/ws/alerts")(ws_alerts_endpoint)
 

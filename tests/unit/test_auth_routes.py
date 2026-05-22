@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 
 from src.api.main import app
 from src.api.routes.auth import _rate_limit_store
-from src.auth.jwt import create_token
 
 client = TestClient(app)
 
@@ -198,7 +197,8 @@ class TestRBACErrorMessageHygiene:
         """The 403 error from require_role must not leak the user's role
         or the required roles."""
         from fastapi import HTTPException
-        from src.api.middleware.rbac import require_role, EDITOR_ROLES
+
+        from src.api.middleware.rbac import EDITOR_ROLES, require_role
 
         viewer_user = {"role": "viewer", "org_id": "org_bd_001"}
         with pytest.raises(HTTPException) as exc_info:
@@ -215,7 +215,8 @@ class TestRBACErrorMessageHygiene:
 
     def test_rbac_403_for_unknown_role_does_not_leak(self):
         from fastapi import HTTPException
-        from src.api.middleware.rbac import require_role, ADMIN_ROLES
+
+        from src.api.middleware.rbac import ADMIN_ROLES, require_role
 
         unknown_user = {"role": "superuser"}
         with pytest.raises(HTTPException) as exc_info:

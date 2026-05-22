@@ -1,5 +1,6 @@
 """Emission factor API — reference data for carbon calculations."""
-from fastapi import APIRouter, Depends, HTTPException
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 
 from src.api.middleware.auth import require_auth
@@ -13,13 +14,15 @@ def list_factors(
     category: Optional[str] = None,
     country_code: Optional[str] = None,
     factor_name: Optional[str] = None,
+    year: Optional[int] = Query(None, description="Filter by emission year"),
     user: dict = Depends(require_auth),
 ):
     """List emission factors with optional filters."""
     conn = get_connection()
     try:
-        query = "SELECT * FROM emission_factors WHERE 1=1"
-        params: list = []
+        org_id = user.get("org_id", "")
+        query = "SELECT * FROM emission_factors WHERE (org_id = ? OR org_id = '')"
+        params: list = [org_id]
 
         if category:
             query += " AND category = ?"
@@ -30,6 +33,9 @@ def list_factors(
         if factor_name:
             query += " AND factor_name LIKE ?"
             params.append(f"%{factor_name}%")
+        if year is not None:
+            query += " AND year = ?"
+            params.append(year)
 
         query += " ORDER BY category, factor_name"
         factors = _fetchall(conn, query, tuple(params))
@@ -62,9 +68,15 @@ def calculate_emissions(
     if not factors:
         conn = get_connection()
         try:
-            factors = _fetchall(conn, "SELECT * FROM emission_factors WHERE factor_name LIKE ?", (f"%{factor_name}%",))
+            factors = _fetchall(
+                conn,
+                "SELECT * FROM emission_factors WHERE factor_name LIKE ?",
+                (f"%{factor_name}%",),
+            )
             if not factors:
-                raise HTTPException(status_code=404, detail=f"No emission factor found for '{factor_name}'")
+                raise HTTPException(
+                    status_code=404, detail=f"No emission factor found for '{factor_name}'"
+                )
             factor = factors[0]
         finally:
             release_connection(conn)

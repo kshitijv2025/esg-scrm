@@ -233,7 +233,7 @@ class TestOperationsSummary:
         assert resp.status_code == 200
         clusters = resp.json()["clusters"]
         assert len(clusters) >= 1
-        for cluster_key, cluster in clusters.items():
+        for _cluster_key, cluster in clusters.items():
             assert "value" in cluster
             assert "unit" in cluster
             assert "confidence" in cluster

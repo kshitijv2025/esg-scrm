@@ -540,3 +540,16 @@ CREATE TABLE IF NOT EXISTS webhooks (
 
 CREATE INDEX IF NOT EXISTS idx_webhooks_org ON webhooks(org_id);
 CREATE INDEX IF NOT EXISTS idx_webhooks_events ON webhooks(events);
+
+-- Auditor token store for time-limited auditor access links
+CREATE TABLE IF NOT EXISTS auditor_tokens (
+    token TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT 'read_only',
+    expires_at TEXT NOT NULL,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_auditor_tokens_org ON auditor_tokens(org_id);
+CREATE INDEX IF NOT EXISTS idx_auditor_tokens_expires ON auditor_tokens(expires_at);

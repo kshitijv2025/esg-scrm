@@ -4,14 +4,14 @@ CSV reference-data upload API — suppliers, emission factors, certifications.
 This handles REFERENCE DATA ONLY. Operational data (metrics, evidence) must go
 through MQTT as defined by the platform architecture.
 """
+
 import csv
 import io
 import os
 import re
 import uuid
-from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from src.api.middleware.auth import require_auth
 from src.api.middleware.rbac import require_role, EDITOR_ROLES
@@ -23,7 +23,12 @@ MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
 MAX_ROWS = 1000
 VALID_TIERS = {"tier1", "tier2", "tier3"}
 ALLOWED_EXTENSIONS = {".csv"}
-ALLOWED_MIME_TYPES = {"text/csv", "text/plain", "application/vnd.ms-excel", "application/octet-stream"}
+ALLOWED_MIME_TYPES = {
+    "text/csv",
+    "text/plain",
+    "application/vnd.ms-excel",
+    "application/octet-stream",
+}
 _FILENAME_SANITIZER = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
@@ -35,16 +40,23 @@ def _validate_upload(file: UploadFile) -> None:
 
     # Filename sanitization — reject paths with / or ..
     if "/" in filename or ".." in filename or "\\" in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename — path separators not allowed.")
+        raise HTTPException(
+            status_code=400, detail="Invalid filename — path separators not allowed."
+        )
 
     if _FILENAME_SANITIZER.search(filename):
-        raise HTTPException(status_code=400, detail="Invalid filename — contains unsafe characters.")
+        raise HTTPException(
+            status_code=400, detail="Invalid filename — contains unsafe characters."
+        )
 
     ext = os.path.splitext(filename)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file extension '{ext}'. Only {', '.join(sorted(ALLOWED_EXTENSIONS))} allowed.",
+            detail=(
+                f"Invalid file extension '{ext}'. "
+                f"Only {', '.join(sorted(ALLOWED_EXTENSIONS))} allowed."
+            ),
         )
 
     content_type = (file.content_type or "").lower()
@@ -55,25 +67,33 @@ def _validate_upload(file: UploadFile) -> None:
         )
 
 
-def _log_upload(org_id: str, user_id: str, upload_type: str, filename: str,
-                imported: int, errors: list[str]) -> None:
+def _log_upload(
+    org_id: str, user_id: str, upload_type: str, filename: str, imported: int, errors: list[str]
+) -> None:
     """Record upload in audit_log."""
     conn = get_connection()
     try:
-        _execute(conn, """
+        _execute(
+            conn,
+            """
             INSERT INTO audit_log (org_id, user_id, action, resource_type, resource_id, details)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            org_id, user_id, "upload_csv", upload_type, filename,
-            f"imported={imported}, errors={len(errors)}" + (f", first_error={errors[0]}" if errors else ""),
-        ))
+        """,
+            (
+                org_id,
+                user_id,
+                "upload_csv",
+                upload_type,
+                filename,
+                f"imported={imported}, errors={len(errors)}"
+                + (f", first_error={errors[0]}" if errors else ""),
+            ),
+        )
     finally:
         release_connection(conn)
 
 
-def _validate_csv_headers(
-    reader: csv.DictReader, required: list[str], entity_name: str
-) -> None:
+def _validate_csv_headers(reader: csv.DictReader, required: list[str], entity_name: str) -> None:
     """Raise HTTPException if required columns are missing from the CSV header."""
     missing = [col for col in required if col not in (reader.fieldnames or [])]
     if missing:
@@ -103,8 +123,12 @@ def _read_csv(file: UploadFile) -> tuple[csv.DictReader, bytes]:
 # ---------------------------------------------------------------------------
 
 SUPPLIER_REQUIRED_COLUMNS = [
-    "name", "country", "industry", "tier",
-    "annual_spend_usd", "phone", "preferred_channel", "certifications",
+    "name",
+    "country",
+    "industry",
+    "tier",
+    "annual_spend_usd",
+    "phone",
 ]
 SUPPLIER_REQUIRED_FIELDS = ["name", "country", "tier"]
 
@@ -137,13 +161,9 @@ def upload_suppliers(
             break
 
         # Skip rows missing required fields
-        missing_fields = [
-            f for f in SUPPLIER_REQUIRED_FIELDS if not row.get(f, "").strip()
-        ]
+        missing_fields = [f for f in SUPPLIER_REQUIRED_FIELDS if not row.get(f, "").strip()]
         if missing_fields:
-            errors.append(
-                f"Row {row_index}: skipped — missing {', '.join(missing_fields)}"
-            )
+            errors.append(f"Row {row_index}: skipped — missing {', '.join(missing_fields)}")
             continue
 
         tier_value = row["tier"].strip().lower()
@@ -191,7 +211,13 @@ def upload_suppliers(
 
 
 EMISSION_FACTOR_COLUMNS = [
-    "factor_name", "category", "value", "unit", "country_code", "source", "year",
+    "factor_name",
+    "category",
+    "value",
+    "unit",
+    "country_code",
+    "source",
+    "year",
 ]
 
 
@@ -274,7 +300,11 @@ def upload_emission_factors(
 # ---------------------------------------------------------------------------
 
 CERTIFICATION_COLUMNS = [
-    "supplier_id", "certification_name", "issued_by", "valid_from", "valid_to",
+    "supplier_id",
+    "certification_name",
+    "issued_by",
+    "valid_from",
+    "valid_to",
 ]
 
 
@@ -321,13 +351,12 @@ def upload_certifications(
             conn, "SELECT certifications, org_id FROM suppliers WHERE id = ?", (supplier_id,)
         )
         if not supplier:
-            errors.append(
-                f"Row {row_index}: skipped — supplier '{supplier_id}' not found"
-            )
+            errors.append(f"Row {row_index}: skipped — supplier '{supplier_id}' not found")
             continue
         if supplier.get("org_id") and supplier["org_id"] != org_id:
             errors.append(
-                f"Row {row_index}: skipped — supplier '{supplier_id}' does not belong to your organization"
+                f"Row {row_index}: skipped — "
+                f"supplier '{supplier_id}' does not belong to your organization"
             )
             continue
 
@@ -354,6 +383,7 @@ def upload_certifications(
 # GET /history
 # ---------------------------------------------------------------------------
 
+
 @router.get("/history")
 def upload_history(
     skip: int = 0,
@@ -364,14 +394,19 @@ def upload_history(
     org_id = user["org_id"]
     conn = get_connection()
     from src.db.database import _fetchall
+
     try:
-        rows = _fetchall(conn, """
+        rows = _fetchall(
+            conn,
+            """
             SELECT id, user_id, action, resource_type, resource_id, details, created_at
             FROM audit_log
             WHERE org_id = ? AND action = 'upload_csv'
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
-        """, (org_id, limit, skip))
+        """,
+            (org_id, limit, skip),
+        )
         return {"uploads": rows, "total": len(rows)}
     finally:
         release_connection(conn)
@@ -380,4 +415,5 @@ def upload_history(
 def _is_postgres() -> bool:
     """Check if the database backend is PostgreSQL."""
     from src.db.database import is_postgres
+
     return is_postgres()

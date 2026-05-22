@@ -1,13 +1,19 @@
 import React from "react";
 
-function SummaryStrip({ riskSummary, scope3Completeness, metrics }) {
-  const diesel = metrics?.metrics?.diesel_consumed;
+function SummaryStrip({
+  riskSummary,
+  scope3Completeness,
+  metrics,
+  scorecard,
+  navigate,
+}) {
+  const diesel = metrics?.clusters?.diesel_consumed;
   const dieselBroken = diesel?.chain_valid === false;
 
   const totalCO2e = metrics
-    ? (metrics.metrics.emissions_tco2?.value || 0) +
-      (metrics.metrics.scope3_category1?.value || 0) +
-      (metrics.metrics.scope3_category6?.value || 0)
+    ? (metrics.clusters.emissions_tco2?.value || 0) +
+      (metrics.clusters.scope3_category1?.value || 0) +
+      (metrics.clusters.scope3_category6?.value || 0)
     : 0;
 
   const stripItems = [
@@ -51,6 +57,22 @@ function SummaryStrip({ riskSummary, scope3Completeness, metrics }) {
     },
   ];
 
+  const quadrantChips =
+    scorecard?.quadrants?.map((q) => {
+      const tierColors = { A: "#22c55e", B: "#f59e0b", C: "#ef4444" };
+      const trendArrows = { up: "↑", down: "↓", stable: "→" };
+      return {
+        id: q.id,
+        label: q.id,
+        sub: q.name,
+        score: q.score,
+        tier: q.tier,
+        tierColor: tierColors[q.tier] || "#888",
+        trend: trendArrows[q.trend] || "→",
+        accent: q.tier === "A" ? "green" : q.tier === "B" ? "amber" : "red",
+      };
+    }) || [];
+
   return (
     <div className="summary-strip">
       {stripItems.map((item) => (
@@ -63,6 +85,33 @@ function SummaryStrip({ riskSummary, scope3Completeness, metrics }) {
           <div className="summary-strip-sub">{item.sub}</div>
         </div>
       ))}
+      {quadrantChips.length > 0 && (
+        <div className="quadrant-chips">
+          <div className="quadrant-chips-label">Risk Quadrants</div>
+          <div className="quadrant-chips-row">
+            {quadrantChips.map((chip) => (
+              <button
+                key={chip.id}
+                className={`quadrant-chip accent-${chip.accent}`}
+                onClick={() =>
+                  navigate && navigate(`/risk-alerts?quadrant=${chip.id}`)
+                }
+                title={chip.sub}
+              >
+                <span className="quadrant-chip-id">{chip.label}</span>
+                <span className="quadrant-chip-score">{chip.score}</span>
+                <span
+                  className="quadrant-chip-tier"
+                  style={{ color: chip.tierColor }}
+                >
+                  {chip.tier}
+                </span>
+                <span className="quadrant-chip-trend">{chip.trend}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

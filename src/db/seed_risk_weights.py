@@ -3,6 +3,7 @@ Seed default risk prediction weights to data/risk_weights.json.
 
 Run once: python -m src.db.seed_risk_weights
 """
+
 import json
 from pathlib import Path
 

@@ -1,4 +1,5 @@
 """Role-based access control helpers."""
+
 from fastapi import HTTPException
 
 ADMIN_ROLES = {"admin"}

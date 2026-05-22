@@ -10,9 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
-from uuid import UUID
 
-from src.supplier.nlu_parser import ParsedResponse, ParsedAnswer, ConfidenceLevel
+from src.supplier.nlu_parser import ParsedResponse, ParsedAnswer
 
 logger = structlog.get_logger(__name__)
 

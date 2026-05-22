@@ -55,7 +55,6 @@ def _get_pg_pool():
     """Get or create the PostgreSQL connection pool."""
     global _pg_pool, _pool_created_at
     if _pg_pool is None or _pg_pool.closed:
-        import psycopg2
         from psycopg2.pool import ThreadedConnectionPool
 
         size = _get_pool_size()
@@ -94,8 +93,8 @@ def _evict_stale_pg_connections() -> None:
             with _pg_conn_timestamps_lock:
                 _pg_conn_timestamps.pop(conn, None)
             _pg_pool.putconn(conn, close=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger("db").warning("db.connection.evict.error", error=str(e))
 
 
 def get_connection(row_factory: bool = True):
@@ -598,6 +597,25 @@ def _migrate_sqlite() -> None:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_webhooks_org ON webhooks(org_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_webhooks_events ON webhooks(events)")
 
+        # Auditor token store for time-limited auditor access links
+        if "auditor_tokens" not in existing_tables:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS auditor_tokens (
+                    token TEXT PRIMARY KEY,
+                    org_id TEXT NOT NULL,
+                    scope TEXT NOT NULL DEFAULT 'read_only',
+                    expires_at TEXT NOT NULL,
+                    created_by TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_auditor_tokens_org ON auditor_tokens(org_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_auditor_tokens_expires ON auditor_tokens(expires_at)"
+            )
+
         conn.commit()
     finally:
         conn.close()
@@ -625,7 +643,25 @@ def _ensure_db() -> None:
             conn.executescript(SCHEMA_PATH.read_text())
             conn.close()
         else:
-            _migrate_sqlite()
+            # Verify critical tables exist; if not, re-initialize from schema
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            try:
+                existing_tables = {
+                    r[0]
+                    for r in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    ).fetchall()
+                }
+                if "users" not in existing_tables or "factories" not in existing_tables:
+                    conn.close()
+                    conn = sqlite3.connect(DB_PATH)
+                    conn.executescript(SCHEMA_PATH.read_text())
+                    conn.close()
+                else:
+                    _migrate_sqlite()
+            finally:
+                conn.close()
     # C3.9: Enforce retention policy on startup — archive old records, no hard delete
     # Uses _run_retention_policy() to avoid re-entering _ensure_db() via get_connection()
     try:
@@ -667,6 +703,7 @@ def reset_database() -> None:
                 "factories",
                 "users",
                 "organizations",
+                "auditor_tokens",
             ]
             for t in tables:
                 cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")

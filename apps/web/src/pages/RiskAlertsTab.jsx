@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { apiFetch } from "../api/client";
 import { ErrorState } from "../components/ErrorState";
 import GeopoliticalRiskTable from "../components/GeopoliticalRiskTable";
+import { sanitize } from "../utils/sanitize";
 
 export default function RiskAlertsTab() {
   const [flags, setFlags] = useState(null);
@@ -9,9 +11,19 @@ export default function RiskAlertsTab() {
   const [scorecard, setScorecard] = useState(null);
   const [completeness, setCompleteness] = useState(null);
   const [geopolitical, setGeopolitical] = useState(null);
+  const [correctiveActions, setCorrectiveActions] = useState(null);
   const [loading, setLoading] = useState(true);
   const [acknowledging, setAcknowledging] = useState(null);
+  const [creatingAction, setCreatingAction] = useState(null);
+  const [actionForm, setActionForm] = useState({
+    title: "",
+    description: "",
+    priority: "medium",
+    deadline: "",
+  });
   const [error, setError] = useState(null);
+  const [searchParams] = useSearchParams();
+  const activeQuadrant = searchParams.get("quadrant");
 
   function loadData() {
     setLoading(true);
@@ -22,13 +34,15 @@ export default function RiskAlertsTab() {
       apiFetch("/risk/scorecard").then((r) => r.json()),
       apiFetch("/scope3/completeness").then((r) => r.json()),
       apiFetch("/risk/geopolitical").then((r) => r.json()),
+      apiFetch("/corrective-actions").then((r) => r.json()),
     ])
-      .then(([f, s, sc, comp, geo]) => {
+      .then(([f, s, sc, comp, geo, ca]) => {
         setFlags(f);
         setSummary(s);
         setScorecard(sc);
         setCompleteness(comp);
         setGeopolitical(geo);
+        setCorrectiveActions(ca);
         setLoading(false);
       })
       .catch((err) => {
@@ -55,6 +69,72 @@ export default function RiskAlertsTab() {
       .catch((err) => {
         setError(err.message || "Failed to acknowledge flag");
         setAcknowledging(null);
+      });
+  }
+
+  function createCorrectiveAction(flag) {
+    setCreatingAction(flag.id);
+    setActionForm({
+      title: `Address: ${flag.flag_text?.slice(0, 80) || "Risk flag"}`,
+      description: `Root cause analysis required for ${flag.cluster} flag. ${flag.flag_text || ""}`,
+      priority:
+        flag.severity === "CRITICAL"
+          ? "critical"
+          : flag.severity === "WARNING"
+            ? "high"
+            : "medium",
+      deadline: "",
+    });
+  }
+
+  function submitCorrectiveAction() {
+    if (!actionForm.title.trim()) return;
+
+    apiFetch("/corrective-actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...actionForm,
+        flag_id: creatingAction,
+      }),
+    })
+      .then((r) => r.json())
+      .then((result) => {
+        // Refresh corrective actions
+        return apiFetch("/corrective-actions").then((r) => r.json());
+      })
+      .then((ca) => {
+        setCorrectiveActions(ca);
+        setCreatingAction(null);
+        setActionForm({
+          title: "",
+          description: "",
+          priority: "medium",
+          deadline: "",
+        });
+      })
+      .catch((err) => {
+        setError(err.message || "Failed to create corrective action");
+      });
+  }
+
+  function updateActionStatus(actionId, newStatus) {
+    apiFetch(`/corrective-actions/${actionId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: newStatus }),
+    })
+      .then((r) => r.json())
+      .then(() => {
+        setCorrectiveActions((prev) => ({
+          ...prev,
+          actions: prev.actions.map((a) =>
+            a.id === actionId ? { ...a, status: newStatus } : a,
+          ),
+        }));
+      })
+      .catch((err) => {
+        setError(err.message || "Failed to update action");
       });
   }
 
@@ -116,10 +196,27 @@ export default function RiskAlertsTab() {
             {scorecard.quadrants.map((q) => {
               const tierColors = { A: "#22c55e", B: "#f59e0b", C: "#ef4444" };
               const trendArrows = { up: "↑", down: "↓", stable: "→" };
+              const isActive = activeQuadrant === q.id;
               return (
-                <div key={q.id} className="scorecard-cell">
+                <div
+                  key={q.id}
+                  className={`scorecard-cell ${isActive ? "scorecard-cell--active" : ""}`}
+                  style={
+                    isActive
+                      ? {
+                          borderColor: "#22c55e",
+                          boxShadow: "0 0 12px rgba(34,197,94,0.3)",
+                        }
+                      : {}
+                  }
+                >
                   <div className="scorecard-id">
                     {q.id} — {q.name}
+                    {isActive && (
+                      <span style={{ color: "#22c55e", marginLeft: 8 }}>
+                        ← Active
+                      </span>
+                    )}
                   </div>
                   <div className="scorecard-score">{q.score}</div>
                   <div className="scorecard-meta">
@@ -222,7 +319,12 @@ export default function RiskAlertsTab() {
                       P{(flag.priority_score || 0).toFixed(1)}
                     </span>
                   </div>
-                  <div className="risk-flag-message">{flag.flag_text}</div>
+                  <div
+                    className="risk-flag-message"
+                    dangerouslySetInnerHTML={{
+                      __html: sanitize(flag.flag_text || ""),
+                    }}
+                  />
                   <div className="risk-flag-meta">
                     <span>{flag.days_overdue} days overdue</span>
                     <span>{flag.created_at}</span>
@@ -235,6 +337,12 @@ export default function RiskAlertsTab() {
                     {acknowledging === flag.id
                       ? "Acknowledging..."
                       : "Acknowledge"}
+                  </button>
+                  <button
+                    className="action-btn create"
+                    onClick={() => createCorrectiveAction(flag)}
+                  >
+                    Create Action
                   </button>
                 </div>
               ))}
@@ -265,7 +373,12 @@ export default function RiskAlertsTab() {
                       Acknowledged {flag.acknowledged_at}
                     </span>
                   </div>
-                  <div className="risk-flag-message">{flag.flag_text}</div>
+                  <div
+                    className="risk-flag-message"
+                    dangerouslySetInnerHTML={{
+                      __html: sanitize(flag.flag_text || ""),
+                    }}
+                  />
                 </div>
               ))}
             </div>
@@ -280,6 +393,167 @@ export default function RiskAlertsTab() {
           <GeopoliticalRiskTable countries={geopolitical.countries} />
         </div>
       )}
+
+      {/* Corrective Actions Panel */}
+      <div className="panel">
+        <h3>Corrective Actions</h3>
+        {correctiveActions?.actions?.length > 0 ? (
+          <div className="corrective-actions-list">
+            {correctiveActions.actions.map((action) => {
+              const statusColors = {
+                open: "#f59e0b",
+                in_progress: "#3b82f6",
+                completed: "#22c55e",
+                cancelled: "#6b7280",
+              };
+              const priorityColors = {
+                critical: "#ef4444",
+                high: "#f97316",
+                medium: "#eab308",
+                low: "#6b7280",
+              };
+              return (
+                <div key={action.id} className="action-card">
+                  <div className="action-header">
+                    <span
+                      className="action-status"
+                      style={{
+                        background: statusColors[action.status] || "#6b7280",
+                      }}
+                    >
+                      {action.status?.replace("_", " ")}
+                    </span>
+                    <span
+                      className="action-priority"
+                      style={{
+                        color: priorityColors[action.priority] || "#6b7280",
+                      }}
+                    >
+                      {action.priority}
+                    </span>
+                    <span className="action-deadline">
+                      {action.deadline
+                        ? `Due: ${action.deadline}`
+                        : "No deadline"}
+                    </span>
+                  </div>
+                  <h4 className="action-title">{action.title}</h4>
+                  <p className="action-description">{action.description}</p>
+                  <div className="action-footer">
+                    {action.status === "open" && (
+                      <button
+                        className="action-btn start"
+                        onClick={() =>
+                          updateActionStatus(action.id, "in_progress")
+                        }
+                      >
+                        Start
+                      </button>
+                    )}
+                    {action.status === "in_progress" && (
+                      <button
+                        className="action-btn complete"
+                        onClick={() =>
+                          updateActionStatus(action.id, "completed")
+                        }
+                      >
+                        Mark Complete
+                      </button>
+                    )}
+                    {action.status !== "completed" &&
+                      action.status !== "cancelled" && (
+                        <button
+                          className="action-btn cancel"
+                          onClick={() =>
+                            updateActionStatus(action.id, "cancelled")
+                          }
+                        >
+                          Cancel
+                        </button>
+                      )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="empty-state">No corrective actions yet</div>
+        )}
+
+        {/* Create action from flag */}
+        {creatingAction && (
+          <div className="action-form-overlay">
+            <div className="action-form">
+              <h4>Create Corrective Action</h4>
+              <div className="form-group">
+                <label>Title</label>
+                <input
+                  type="text"
+                  value={actionForm.title}
+                  onChange={(e) =>
+                    setActionForm((f) => ({ ...f, title: e.target.value }))
+                  }
+                  placeholder="Action title"
+                />
+              </div>
+              <div className="form-group">
+                <label>Description</label>
+                <textarea
+                  value={actionForm.description}
+                  onChange={(e) =>
+                    setActionForm((f) => ({
+                      ...f,
+                      description: e.target.value,
+                    }))
+                  }
+                  placeholder="Describe the corrective action..."
+                  rows={3}
+                />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Priority</label>
+                  <select
+                    value={actionForm.priority}
+                    onChange={(e) =>
+                      setActionForm((f) => ({ ...f, priority: e.target.value }))
+                    }
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Deadline</label>
+                  <input
+                    type="date"
+                    value={actionForm.deadline}
+                    onChange={(e) =>
+                      setActionForm((f) => ({ ...f, deadline: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="form-actions">
+                <button
+                  className="btn-secondary"
+                  onClick={() => setCreatingAction(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn-primary"
+                  onClick={submitCorrectiveAction}
+                >
+                  Create Action
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

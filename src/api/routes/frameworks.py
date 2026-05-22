@@ -1,5 +1,7 @@
 """Framework mapping API — investor demo"""
+
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 router = APIRouter()
 
@@ -16,6 +18,7 @@ FRAMEWORK_OUTPUTS = {
                 "non_renewable": "2,535,315 kWh (89%)",
             },
             "methodology": "Direct measurement — SAP Business One utility invoices",
+            "description": "Direct measurement — SAP Business One utility invoices",
             "confidence": "HIGH",
         },
         "issb_ifrs_s2": {
@@ -24,6 +27,7 @@ FRAMEWORK_OUTPUTS = {
             "value": "2,847,320 kWh",
             "unit": "kWh",
             "methodology": "Direct measurement",
+            "description": "Direct measurement",
             "confidence": "HIGH",
         },
         "gri_302_1": {
@@ -36,6 +40,7 @@ FRAMEWORK_OUTPUTS = {
                 "diesel": "0 GJ",
             },
             "methodology": "Direct measurement — meter readings",
+            "description": "Direct measurement — meter readings",
             "confidence": "HIGH",
         },
         "tcfd_metrics": {
@@ -44,6 +49,7 @@ FRAMEWORK_OUTPUTS = {
             "value": "2,847,320 kWh",
             "unit": "kWh",
             "methodology": "Direct measurement",
+            "description": "Direct measurement",
             "confidence": "HIGH",
         },
     },
@@ -58,6 +64,7 @@ FRAMEWORK_OUTPUTS = {
                 "conversion_factor": "2.68 kg CO2/L (diesel)",
             },
             "methodology": "Manual entry — diesel generator consumption log",
+            "description": "Manual entry — diesel generator consumption log",
             "confidence": "MEDIUM",
         },
         "issb_ifrs_s2": {
@@ -66,6 +73,7 @@ FRAMEWORK_OUTPUTS = {
             "value": "49.3 tCO2e",
             "unit": "tCO2e",
             "methodology": "Activity-based — liters consumed × emission factor",
+            "description": "Activity-based — liters consumed × emission factor",
             "confidence": "MEDIUM",
         },
         "gri_305_1": {
@@ -74,6 +82,7 @@ FRAMEWORK_OUTPUTS = {
             "value": "49.3 tCO2e",
             "unit": "tCO2e",
             "methodology": "Direct measurement — diesel generator log",
+            "description": "Direct measurement — diesel generator log",
             "confidence": "MEDIUM",
         },
         "tcfd_metrics": {
@@ -82,6 +91,7 @@ FRAMEWORK_OUTPUTS = {
             "value": "49.3 tCO2e",
             "unit": "tCO2e",
             "methodology": "Manual calculation",
+            "description": "Manual calculation",
             "confidence": "MEDIUM",
         },
     },
@@ -97,6 +107,7 @@ FRAMEWORK_OUTPUTS = {
                 "rental_cars_km": "18,200 km",
             },
             "methodology": "Manual entry — travel expense claims × GHG Protocol emission factors",
+            "description": "Manual entry — travel expense claims × GHG Protocol emission factors",
             "confidence": "LOW",
         },
         "issb_ifrs_s2": {
@@ -105,6 +116,7 @@ FRAMEWORK_OUTPUTS = {
             "value": "37.0 tCO2e",
             "unit": "tCO2e",
             "methodology": "Activity-based — flight km + hotel nights + car km",
+            "description": "Activity-based — flight km + hotel nights + car km",
             "confidence": "LOW",
         },
         "gri_305_3": {
@@ -113,6 +125,7 @@ FRAMEWORK_OUTPUTS = {
             "value": "37.0 tCO2e",
             "unit": "tCO2e",
             "methodology": "Expense report totals × emission factors",
+            "description": "Expense report totals × emission factors",
             "confidence": "LOW",
         },
     },
@@ -128,6 +141,7 @@ FRAMEWORK_OUTPUTS = {
                 "waste": "129.7 tCO2e",
             },
             "methodology": "Activity-based + supplier-specific (47 of 73 suppliers responded)",
+            "description": "Activity-based + supplier-specific (47 of 73 suppliers responded)",
             "confidence": "MEDIUM",
             "coverage_note": "64% of procurement spend covered",
         },
@@ -137,6 +151,7 @@ FRAMEWORK_OUTPUTS = {
             "value": "4,281.7 tCO2e",
             "unit": "tCO2e",
             "methodology": "Activity-based",
+            "description": "Activity-based",
             "confidence": "MEDIUM",
         },
         "gri_305_3": {
@@ -145,6 +160,7 @@ FRAMEWORK_OUTPUTS = {
             "value": "4,281.7 tCO2e",
             "unit": "tCO2e",
             "methodology": "GHG Protocol Category 1 — spend-based with supplier-specific overrides",
+            "description": "GHG Protocol Category 1 — spend-based with supplier-specific overrides",
             "confidence": "MEDIUM",
         },
     },
@@ -377,7 +393,11 @@ FRAMEWORK_OUTPUTS["gender_pct_42"] = {
         "label": "Gender composition of workforce",
         "value": "42% female",
         "unit": "%",
-        "breakdown": {"management": "28% female", "operational": "48% female", "board": "33% female"},
+        "breakdown": {
+            "management": "28% female",
+            "operational": "48% female",
+            "board": "33% female",
+        },
         "methodology": "HRIS data — headcount by gender band",
         "confidence": "HIGH",
     },
@@ -417,7 +437,11 @@ FRAMEWORK_OUTPUTS["governance_score_78"] = {
         "label": "Corporate governance — board independence and composition",
         "value": "78/100",
         "unit": "score",
-        "breakdown": {"board_independence": "67%", "gender_diversity": "33%", "audit_committee": "100% independent"},
+        "breakdown": {
+            "board_independence": "67%",
+            "gender_diversity": "33%",
+            "audit_committee": "100% independent",
+        },
         "methodology": "Governance review against CSRD G1 requirements",
         "confidence": "MEDIUM",
     },
@@ -456,14 +480,20 @@ def framework_map(metric_type: str):
         "governance_score": ("governance_score_78", "78/100"),
     }
     if metric_type not in mapping:
-        return {"error": "metric not found"}, 404
+        return JSONResponse({"detail": "metric not found"}, status_code=404)
     key, source_value = mapping[metric_type]
     if key not in FRAMEWORK_OUTPUTS:
-        return {"error": "metric mapping not found"}, 404
+        return JSONResponse({"detail": "metric mapping not found"}, status_code=404)
     return {
         "source_metric": metric_type,
         "source_value": source_value,
-        "frameworks": FRAMEWORK_OUTPUTS[key],
+        "frameworks": {
+            fw.replace("_e1", "")
+            .replace("_s2", "")
+            .replace("_302_1", "")
+            .replace("_metrics", ""): detail
+            for fw, detail in FRAMEWORK_OUTPUTS[key].items()
+        },
     }
 
 
@@ -472,13 +502,21 @@ def list_all_mappings():
     """List all available cluster-to-framework mappings"""
     mappings = []
     for key in FRAMEWORK_OUTPUTS:
-        # Derive a readable metric name from the key
-        metric_name = key.replace("_18430", "").replace("_4281", "").replace("_42", "").replace("_3", "").replace("_78", "").replace("_", " ").title()
-        mappings.append({
-            "key": key,
-            "metric_name": metric_name,
-            "frameworks": list(FRAMEWORK_OUTPUTS[key].keys()),
-        })
+        # Strip trailing numeric suffixes to get the base cluster key
+        base_key = key
+        for suffix in ["_2847320", "_18430", "_4281", "_42", "_3", "_78"]:
+            if key.endswith(suffix):
+                base_key = key[: -len(suffix)]
+                break
+        # Derive a readable metric name from the base key
+        metric_name = base_key.replace("_", " ").title()
+        mappings.append(
+            {
+                "key": base_key,
+                "metric_name": metric_name,
+                "frameworks": list(FRAMEWORK_OUTPUTS[key].keys()),
+            }
+        )
     return {"mappings": mappings, "total": len(mappings)}
 
 
@@ -490,155 +528,424 @@ def compare_frameworks(metric_type: str):
             "metric": "Energy Consumption",
             "source_value": "2,847,320 kWh",
             "frameworks": [
-                {"name": "CSRD / ESRS E1", "field_id": "E1-13", "value": "2,847,320 kWh", "unit": "kWh", "confidence": "HIGH"},
-                {"name": "ISSB / IFRS S2", "field_id": "S2-13", "value": "2,847,320 kWh", "unit": "kWh", "confidence": "HIGH"},
-                {"name": "GRI 302", "field_id": "302-1", "value": "10,250 GJ", "unit": "GJ", "confidence": "HIGH", "note": "Converted to GJ per GRI guidelines"},
-                {"name": "TCFD", "field_id": "M-4", "value": "2,847,320 kWh", "unit": "kWh", "confidence": "HIGH"},
+                {
+                    "name": "CSRD / ESRS E1",
+                    "field_id": "E1-13",
+                    "value": "2,847,320 kWh",
+                    "unit": "kWh",
+                    "confidence": "HIGH",
+                },
+                {
+                    "name": "ISSB / IFRS S2",
+                    "field_id": "S2-13",
+                    "value": "2,847,320 kWh",
+                    "unit": "kWh",
+                    "confidence": "HIGH",
+                },
+                {
+                    "name": "GRI 302",
+                    "field_id": "302-1",
+                    "value": "10,250 GJ",
+                    "unit": "GJ",
+                    "confidence": "HIGH",
+                    "note": "Converted to GJ per GRI guidelines",
+                },
+                {
+                    "name": "TCFD",
+                    "field_id": "M-4",
+                    "value": "2,847,320 kWh",
+                    "unit": "kWh",
+                    "confidence": "HIGH",
+                },
             ],
         },
         "scope3_category_1": {
             "metric": "Scope 3 Category 1 — Purchased Goods",
             "source_value": "4,281.7 tCO2e",
             "frameworks": [
-                {"name": "CSRD / ESRS E1", "field_id": "E1-6", "value": "4,281.7 tCO2e", "unit": "tCO2e", "confidence": "MEDIUM", "note": "64% coverage — 47 of 73 suppliers responded"},
-                {"name": "ISSB / IFRS S2", "field_id": "S2-15", "value": "4,281.7 tCO2e", "unit": "tCO2e", "confidence": "MEDIUM"},
-                {"name": "GRI 305", "field_id": "305-3", "value": "4,281.7 tCO2e", "unit": "tCO2e", "confidence": "MEDIUM", "note": "Activity-based + supplier-specific overrides"},
+                {
+                    "name": "CSRD / ESRS E1",
+                    "field_id": "E1-6",
+                    "value": "4,281.7 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "MEDIUM",
+                    "note": "64% coverage — 47 of 73 suppliers responded",
+                },
+                {
+                    "name": "ISSB / IFRS S2",
+                    "field_id": "S2-15",
+                    "value": "4,281.7 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "MEDIUM",
+                },
+                {
+                    "name": "GRI 305",
+                    "field_id": "305-3",
+                    "value": "4,281.7 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "MEDIUM",
+                    "note": "Activity-based + supplier-specific overrides",
+                },
             ],
         },
         "diesel_consumed": {
             "metric": "Diesel Consumed — Scope 1",
             "source_value": "18,400 L (manual entry from generator log)",
             "frameworks": [
-                {"name": "CSRD / ESRS E1", "field_id": "E1-3", "value": "49.3 tCO2e", "unit": "tCO2e", "confidence": "MEDIUM", "note": "18,400 L × 2.68 kg CO2/L"},
-                {"name": "ISSB / IFRS S2", "field_id": "S2-14", "value": "49.3 tCO2e", "unit": "tCO2e", "confidence": "MEDIUM"},
-                {"name": "GRI 305", "field_id": "305-1", "value": "49.3 tCO2e", "unit": "tCO2e", "confidence": "MEDIUM"},
+                {
+                    "name": "CSRD / ESRS E1",
+                    "field_id": "E1-3",
+                    "value": "49.3 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "MEDIUM",
+                    "note": "18,400 L × 2.68 kg CO2/L",
+                },
+                {
+                    "name": "ISSB / IFRS S2",
+                    "field_id": "S2-14",
+                    "value": "49.3 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "MEDIUM",
+                },
+                {
+                    "name": "GRI 305",
+                    "field_id": "305-1",
+                    "value": "49.3 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "MEDIUM",
+                },
             ],
         },
         "scope3_category_6": {
             "metric": "Business Travel — Scope 3 Cat 6",
             "source_value": "Manual calculation from expense claims",
             "frameworks": [
-                {"name": "CSRD / ESRS E1", "field_id": "E1-7", "value": "37.0 tCO2e", "unit": "tCO2e", "confidence": "LOW", "note": "Flights 98,400 km + hotels 840 nights + cars 18,200 km"},
-                {"name": "ISSB / IFRS S2", "field_id": "S2-16", "value": "37.0 tCO2e", "unit": "tCO2e", "confidence": "LOW"},
-                {"name": "GRI 305", "field_id": "305-3", "value": "37.0 tCO2e", "unit": "tCO2e", "confidence": "LOW", "note": "Per GHG Protocol Category 6 emission factors"},
+                {
+                    "name": "CSRD / ESRS E1",
+                    "field_id": "E1-7",
+                    "value": "37.0 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "LOW",
+                    "note": "Flights 98,400 km + hotels 840 nights + cars 18,200 km",
+                },
+                {
+                    "name": "ISSB / IFRS S2",
+                    "field_id": "S2-16",
+                    "value": "37.0 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "LOW",
+                },
+                {
+                    "name": "GRI 305",
+                    "field_id": "305-3",
+                    "value": "37.0 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "LOW",
+                    "note": "Per GHG Protocol Category 6 emission factors",
+                },
             ],
         },
         "water_m3": {
             "metric": "Water Consumption",
             "source_value": "18,430 m³",
             "frameworks": [
-                {"name": "CSRD / ESRS E3", "field_id": "E3-1", "value": "18,430 m³", "unit": "m³", "confidence": "HIGH"},
-                {"name": "ISSB / IFRS S2", "field_id": "S2-17", "value": "18,430 m³", "unit": "m³", "confidence": "HIGH"},
-                {"name": "GRI 303", "field_id": "303-3", "value": "18,430 m³", "unit": "m³", "confidence": "HIGH", "note": "Municipal 16,200 m³ + groundwater 2,230 m³"},
-                {"name": "TCFD", "field_id": "W-1", "value": "18,430 m³", "unit": "m³", "confidence": "HIGH"},
+                {
+                    "name": "CSRD / ESRS E3",
+                    "field_id": "E3-1",
+                    "value": "18,430 m³",
+                    "unit": "m³",
+                    "confidence": "HIGH",
+                },
+                {
+                    "name": "ISSB / IFRS S2",
+                    "field_id": "S2-17",
+                    "value": "18,430 m³",
+                    "unit": "m³",
+                    "confidence": "HIGH",
+                },
+                {
+                    "name": "GRI 303",
+                    "field_id": "303-3",
+                    "value": "18,430 m³",
+                    "unit": "m³",
+                    "confidence": "HIGH",
+                    "note": "Municipal 16,200 m³ + groundwater 2,230 m³",
+                },
+                {
+                    "name": "TCFD",
+                    "field_id": "W-1",
+                    "value": "18,430 m³",
+                    "unit": "m³",
+                    "confidence": "HIGH",
+                },
             ],
         },
         "waste_tonnes": {
             "metric": "Waste Generated",
             "source_value": "842 tonnes",
             "frameworks": [
-                {"name": "CSRD / ESRS E5", "field_id": "E5-1", "value": "842 tonnes", "unit": "tonnes", "confidence": "MEDIUM", "note": "Hazardous 12t + non-hazardous 830t"},
-                {"name": "GRI 306", "field_id": "306-3", "value": "842 tonnes", "unit": "tonnes", "confidence": "MEDIUM"},
+                {
+                    "name": "CSRD / ESRS E5",
+                    "field_id": "E5-1",
+                    "value": "842 tonnes",
+                    "unit": "tonnes",
+                    "confidence": "MEDIUM",
+                    "note": "Hazardous 12t + non-hazardous 830t",
+                },
+                {
+                    "name": "GRI 306",
+                    "field_id": "306-3",
+                    "value": "842 tonnes",
+                    "unit": "tonnes",
+                    "confidence": "MEDIUM",
+                },
             ],
         },
         "scope3_cat2": {
             "metric": "Scope 3 Category 2 — Capital Goods",
             "source_value": "1,240 tCO2e (spend-based)",
             "frameworks": [
-                {"name": "CSRD / ESRS E1", "field_id": "E1-6", "value": "1,240 tCO2e", "unit": "tCO2e", "confidence": "LOW"},
-                {"name": "GRI 305", "field_id": "305-3", "value": "1,240 tCO2e", "unit": "tCO2e", "confidence": "LOW"},
+                {
+                    "name": "CSRD / ESRS E1",
+                    "field_id": "E1-6",
+                    "value": "1,240 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "LOW",
+                },
+                {
+                    "name": "GRI 305",
+                    "field_id": "305-3",
+                    "value": "1,240 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "LOW",
+                },
             ],
         },
         "scope3_cat3": {
             "metric": "Scope 3 Category 3 — Energy-related",
             "source_value": "2,180 tCO2e",
             "frameworks": [
-                {"name": "CSRD / ESRS E1", "field_id": "E1-5", "value": "2,180 tCO2e", "unit": "tCO2e", "confidence": "LOW"},
-                {"name": "GRI 305", "field_id": "305-3", "value": "2,180 tCO2e", "unit": "tCO2e", "confidence": "LOW"},
+                {
+                    "name": "CSRD / ESRS E1",
+                    "field_id": "E1-5",
+                    "value": "2,180 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "LOW",
+                },
+                {
+                    "name": "GRI 305",
+                    "field_id": "305-3",
+                    "value": "2,180 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "LOW",
+                },
             ],
         },
         "scope3_cat4": {
             "metric": "Scope 3 Category 4 — Upstream Transport",
             "source_value": "3,640 tCO2e",
             "frameworks": [
-                {"name": "CSRD / ESRS E1", "field_id": "E1-5", "value": "3,640 tCO2e", "unit": "tCO2e", "confidence": "MEDIUM"},
-                {"name": "GRI 305", "field_id": "305-3", "value": "3,640 tCO2e", "unit": "tCO2e", "confidence": "MEDIUM"},
+                {
+                    "name": "CSRD / ESRS E1",
+                    "field_id": "E1-5",
+                    "value": "3,640 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "MEDIUM",
+                },
+                {
+                    "name": "GRI 305",
+                    "field_id": "305-3",
+                    "value": "3,640 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "MEDIUM",
+                },
             ],
         },
         "scope3_cat5": {
             "metric": "Scope 3 Category 5 — Waste Generated",
             "source_value": "418 tCO2e",
             "frameworks": [
-                {"name": "CSRD / ESRS E5", "field_id": "E5-1", "value": "418 tCO2e", "unit": "tCO2e", "confidence": "LOW"},
-                {"name": "GRI 306", "field_id": "306-4", "value": "842 tonnes", "unit": "tonnes", "confidence": "MEDIUM"},
+                {
+                    "name": "CSRD / ESRS E5",
+                    "field_id": "E5-1",
+                    "value": "418 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "LOW",
+                },
+                {
+                    "name": "GRI 306",
+                    "field_id": "306-4",
+                    "value": "842 tonnes",
+                    "unit": "tonnes",
+                    "confidence": "MEDIUM",
+                },
             ],
         },
         "scope3_cat7": {
             "metric": "Scope 3 Category 7 — Employee Commuting",
             "source_value": "892 tCO2e",
             "frameworks": [
-                {"name": "CSRD / ESRS E1", "field_id": "E1-7", "value": "892 tCO2e", "unit": "tCO2e", "confidence": "LOW"},
-                {"name": "GRI 305", "field_id": "305-3", "value": "892 tCO2e", "unit": "tCO2e", "confidence": "LOW"},
+                {
+                    "name": "CSRD / ESRS E1",
+                    "field_id": "E1-7",
+                    "value": "892 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "LOW",
+                },
+                {
+                    "name": "GRI 305",
+                    "field_id": "305-3",
+                    "value": "892 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "LOW",
+                },
             ],
         },
         "scope3_cat8": {
             "metric": "Scope 3 Category 8 — Upstream Leased Assets",
             "source_value": "240 tCO2e",
             "frameworks": [
-                {"name": "CSRD / ESRS E1", "field_id": "E1-6", "value": "240 tCO2e", "unit": "tCO2e", "confidence": "LOW"},
-                {"name": "GRI 305", "field_id": "305-3", "value": "240 tCO2e", "unit": "tCO2e", "confidence": "LOW"},
+                {
+                    "name": "CSRD / ESRS E1",
+                    "field_id": "E1-6",
+                    "value": "240 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "LOW",
+                },
+                {
+                    "name": "GRI 305",
+                    "field_id": "305-3",
+                    "value": "240 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "LOW",
+                },
             ],
         },
         "scope3_cat9": {
             "metric": "Scope 3 Category 9 — Downstream Transport",
             "source_value": "1,820 tCO2e",
             "frameworks": [
-                {"name": "CSRD / ESRS E1", "field_id": "E1-5", "value": "1,820 tCO2e", "unit": "tCO2e", "confidence": "MEDIUM"},
-                {"name": "GRI 305", "field_id": "305-3", "value": "1,820 tCO2e", "unit": "tCO2e", "confidence": "MEDIUM"},
+                {
+                    "name": "CSRD / ESRS E1",
+                    "field_id": "E1-5",
+                    "value": "1,820 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "MEDIUM",
+                },
+                {
+                    "name": "GRI 305",
+                    "field_id": "305-3",
+                    "value": "1,820 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "MEDIUM",
+                },
             ],
         },
         "scope3_cat11": {
             "metric": "Scope 3 Category 11 — Use of Sold Products",
             "source_value": "0 tCO2e (N/A — garments are not energy-consuming)",
             "frameworks": [
-                {"name": "CSRD / ESRS E1", "field_id": "E1-6", "value": "0 tCO2e", "unit": "tCO2e", "confidence": "HIGH"},
-                {"name": "GRI 305", "field_id": "305-3", "value": "0 tCO2e", "unit": "tCO2e", "confidence": "HIGH"},
+                {
+                    "name": "CSRD / ESRS E1",
+                    "field_id": "E1-6",
+                    "value": "0 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "HIGH",
+                },
+                {
+                    "name": "GRI 305",
+                    "field_id": "305-3",
+                    "value": "0 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "HIGH",
+                },
             ],
         },
         "scope3_cat12": {
             "metric": "Scope 3 Category 12 — EOL of Sold Products",
             "source_value": "4,120 tCO2e",
             "frameworks": [
-                {"name": "CSRD / ESRS E5", "field_id": "E5-1", "value": "4,120 tCO2e", "unit": "tCO2e", "confidence": "LOW"},
-                {"name": "GRI 306", "field_id": "306-5", "value": "4,120 tCO2e", "unit": "tCO2e", "confidence": "LOW"},
+                {
+                    "name": "CSRD / ESRS E5",
+                    "field_id": "E5-1",
+                    "value": "4,120 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "LOW",
+                },
+                {
+                    "name": "GRI 306",
+                    "field_id": "306-5",
+                    "value": "4,120 tCO2e",
+                    "unit": "tCO2e",
+                    "confidence": "LOW",
+                },
             ],
         },
         "gender_pct": {
             "metric": "Gender Composition — Workforce",
             "source_value": "42% female overall",
             "frameworks": [
-                {"name": "CSRD / ESRS S1", "field_id": "S1-1", "value": "42% female", "unit": "%", "confidence": "HIGH", "note": "Management 28%, operational 48%, board 33%"},
-                {"name": "GRI 405", "field_id": "405-1", "value": "42% female overall", "unit": "%", "confidence": "HIGH"},
+                {
+                    "name": "CSRD / ESRS S1",
+                    "field_id": "S1-1",
+                    "value": "42% female",
+                    "unit": "%",
+                    "confidence": "HIGH",
+                    "note": "Management 28%, operational 48%, board 33%",
+                },
+                {
+                    "name": "GRI 405",
+                    "field_id": "405-1",
+                    "value": "42% female overall",
+                    "unit": "%",
+                    "confidence": "HIGH",
+                },
             ],
         },
         "safety_incidents": {
             "metric": "Work-related Safety Incidents",
             "source_value": "3 incidents (minor), 0 fatalities",
             "frameworks": [
-                {"name": "CSRD / ESRS S1", "field_id": "S1-3", "value": "3 incidents", "unit": "count", "confidence": "HIGH", "note": "LTI 1, MTC 2, first aid 0"},
-                {"name": "GRI 403", "field_id": "403-9", "value": "3 incidents", "unit": "count", "confidence": "HIGH"},
+                {
+                    "name": "CSRD / ESRS S1",
+                    "field_id": "S1-3",
+                    "value": "3 incidents",
+                    "unit": "count",
+                    "confidence": "HIGH",
+                    "note": "LTI 1, MTC 2, first aid 0",
+                },
+                {
+                    "name": "GRI 403",
+                    "field_id": "403-9",
+                    "value": "3 incidents",
+                    "unit": "count",
+                    "confidence": "HIGH",
+                },
             ],
         },
         "governance_score": {
             "metric": "Corporate Governance Score",
             "source_value": "78/100",
             "frameworks": [
-                {"name": "CSRD / ESRS G1", "field_id": "G1-1", "value": "78/100", "unit": "score", "confidence": "MEDIUM", "note": "Board independence 67%, gender diversity 33%"},
-                {"name": "GRI 205", "field_id": "205-1", "value": "100% sites assessed", "unit": "%", "confidence": "HIGH"},
+                {
+                    "name": "CSRD / ESRS G1",
+                    "field_id": "G1-1",
+                    "value": "78/100",
+                    "unit": "score",
+                    "confidence": "MEDIUM",
+                    "note": "Board independence 67%, gender diversity 33%",
+                },
+                {
+                    "name": "GRI 205",
+                    "field_id": "205-1",
+                    "value": "100% sites assessed",
+                    "unit": "%",
+                    "confidence": "HIGH",
+                },
             ],
         },
     }
 
     if metric_type not in COMPARE_DATA:
-        return {"error": "metric not found"}, 404
+        return JSONResponse({"detail": "metric not found"}, status_code=404)
     return COMPARE_DATA[metric_type]

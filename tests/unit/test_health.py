@@ -2,7 +2,7 @@
 Tests for the enhanced health check endpoint.
 """
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -10,10 +10,10 @@ import pytest
 @pytest.fixture
 def client():
     """Build a test client for the health router."""
-    from fastapi.testclient import TestClient
-    from src.api.routes.health import router
-
     from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from src.api.routes.health import router
 
     app = FastAPI()
     app.include_router(router, prefix="/api")

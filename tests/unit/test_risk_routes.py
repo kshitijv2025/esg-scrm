@@ -5,6 +5,7 @@ import sys
 sys.path.insert(0, "src")
 
 from fastapi.testclient import TestClient
+
 from src.api.main import app
 from tests.conftest import _auth_headers
 

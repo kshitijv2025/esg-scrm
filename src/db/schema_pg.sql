@@ -171,6 +171,8 @@ CREATE TABLE IF NOT EXISTS organizations (
     annual_revenue_usd DOUBLE PRECISION,
     connected_since TEXT,
     retention_period_months INTEGER NOT NULL DEFAULT 84,
+    plan TEXT NOT NULL DEFAULT 'starter',
+    trial_end TEXT,
     created_at TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
 );
 
@@ -361,3 +363,251 @@ CREATE TABLE IF NOT EXISTS uploaded_files (
     mime_type TEXT,
     uploaded_at TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
 );
+
+CREATE TABLE IF NOT EXISTS buyer_portal_access (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    buyer_org_id TEXT NOT NULL DEFAULT '',
+    buyer_org_name TEXT NOT NULL DEFAULT '',
+    scope_filter TEXT NOT NULL DEFAULT '{}',
+    token TEXT NOT NULL UNIQUE,
+    token_expires TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_buyer_portal_token ON buyer_portal_access(token);
+CREATE INDEX IF NOT EXISTS idx_buyer_portal_org ON buyer_portal_access(org_id);
+
+CREATE TABLE IF NOT EXISTS metric_metadata (
+    cluster TEXT PRIMARY KEY,
+    trend TEXT NOT NULL DEFAULT '',
+    calculation_method TEXT NOT NULL DEFAULT '',
+    emission_factor TEXT NOT NULL DEFAULT '',
+    emission_factor_value DOUBLE PRECISION NOT NULL DEFAULT 0,
+    coverage_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+    responding_suppliers INTEGER NOT NULL DEFAULT 0,
+    total_suppliers INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    stripe_customer_id TEXT NOT NULL DEFAULT '',
+    stripe_subscription_id TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'inactive',
+    plan_id TEXT NOT NULL DEFAULT 'starter',
+    current_period_start TEXT,
+    current_period_end TEXT,
+    trial_end TEXT,
+    cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+    created_at TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+    FOREIGN KEY (org_id) REFERENCES organizations(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_subscriptions_org ON subscriptions(org_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_stripe_customer ON subscriptions(stripe_customer_id);
+
+CREATE TABLE IF NOT EXISTS weight_changes (
+    id SERIAL PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    old_weights_json TEXT NOT NULL,
+    new_weights_json TEXT NOT NULL,
+    feedback_count INTEGER NOT NULL,
+    changed_by TEXT NOT NULL,
+    changed_at TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_weight_changes_org ON weight_changes(org_id);
+CREATE INDEX IF NOT EXISTS idx_weight_changes_user ON weight_changes(user_id);
+
+CREATE TABLE IF NOT EXISTS gdpr_export_jobs (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'processing',
+    created_at TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+    file_path TEXT,
+    expires_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_gdpr_jobs_org ON gdpr_export_jobs(org_id);
+CREATE INDEX IF NOT EXISTS idx_gdpr_jobs_user ON gdpr_export_jobs(user_id);
+
+CREATE TABLE IF NOT EXISTS notification_log (
+    id SERIAL PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    channel TEXT NOT NULL DEFAULT 'email',
+    recipient TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    sent_at TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+    status TEXT NOT NULL DEFAULT 'sent'
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_org ON notification_log(org_id);
+CREATE INDEX IF NOT EXISTS idx_notification_user ON notification_log(user_id);
+
+CREATE TABLE IF NOT EXISTS compliance_deadlines (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    framework TEXT NOT NULL,
+    requirement TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    deadline TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'upcoming',
+    submission_date TEXT,
+    evidence_required INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+    updated_at TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_compliance_deadlines_org ON compliance_deadlines(org_id);
+CREATE INDEX IF NOT EXISTS idx_compliance_deadlines_deadline ON compliance_deadlines(deadline);
+CREATE INDEX IF NOT EXISTS idx_compliance_deadlines_framework ON compliance_deadlines(framework);
+
+CREATE TABLE IF NOT EXISTS country_risk_scores (
+    country_code TEXT PRIMARY KEY,
+    country_name TEXT NOT NULL,
+    risk_score DOUBLE PRECISION NOT NULL,
+    source TEXT NOT NULL DEFAULT 'Kailash Internal'
+);
+
+CREATE TABLE IF NOT EXISTS user_orgs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    org_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    joined_at TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (org_id) REFERENCES organizations(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_orgs_user ON user_orgs(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_orgs_org ON user_orgs(org_id);
+
+CREATE TABLE IF NOT EXISTS scheduled_reports (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    report_type TEXT NOT NULL,
+    schedule TEXT NOT NULL,
+    next_run TEXT,
+    last_run TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    recipients TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+    created_by TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_reports_org ON scheduled_reports(org_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_reports_next_run ON scheduled_reports(next_run);
+
+CREATE TABLE IF NOT EXISTS webhooks (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    events TEXT NOT NULL DEFAULT '[]',
+    secret TEXT NOT NULL DEFAULT '',
+    is_active INTEGER NOT NULL DEFAULT 1,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    last_triggered TEXT,
+    last_status INTEGER,
+    last_response TEXT,
+    created_at TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+    created_by TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhooks_org ON webhooks(org_id);
+CREATE INDEX IF NOT EXISTS idx_webhooks_events ON webhooks(events);
+
+-- Auditor token store for time-limited auditor access links
+CREATE TABLE IF NOT EXISTS auditor_tokens (
+    token TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT 'read_only',
+    expires_at TEXT NOT NULL,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_auditor_tokens_org ON auditor_tokens(org_id);
+CREATE INDEX IF NOT EXISTS idx_auditor_tokens_expires ON auditor_tokens(expires_at);
+
+-- ============================================================================
+-- SPEC 05: DataPoint Missing Fields — metrics table extensions
+-- These ALTER TABLE statements add fields required for derived calculations,
+-- framework reporting, audit trail, and version control.
+-- ============================================================================
+
+-- Add upstream_data_points for derived metric calculations (FK[] to DataPoint)
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS upstream_data_points INTEGER[];
+
+-- Add reported_in_frameworks for CSRD/ISSB/GRI/TCFD disclosure tracking
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS reported_in_frameworks TEXT[];
+
+-- Add reported_at timestamp for when data was reported
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS reported_at TIMESTAMP;
+
+-- Add reported_by FK reference to users table
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS reported_by INTEGER REFERENCES users(id);
+
+-- Add version for optimistic locking / audit trail
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;
+
+-- Add calculation_method for transparency on how metric was derived
+ALTER TABLE metrics ADD COLUMN IF NOT EXISTS calculation_method TEXT;
+
+-- ============================================================================
+-- SPEC 03: Evidence Vault — evidence_chain table extensions
+-- These ALTER TABLE statements add fields required for chain-of-custody,
+-- cryptographic verification, and CSRD compliance.
+-- ============================================================================
+
+-- Add evidence_type for chain of custody tracking
+ALTER TABLE evidence_chain ADD COLUMN IF NOT EXISTS evidence_type TEXT;
+
+-- Add raw_source_reference for API response ID, file path, message ID
+ALTER TABLE evidence_chain ADD COLUMN IF NOT EXISTS raw_source_reference TEXT;
+
+-- Add raw_source_hash for SHA-256 of raw source at extraction time
+ALTER TABLE evidence_chain ADD COLUMN IF NOT EXISTS raw_source_hash TEXT;
+
+-- Add calculation_formula for human-readable audit trail
+ALTER TABLE evidence_chain ADD COLUMN IF NOT EXISTS calculation_formula TEXT;
+
+-- Add confidence_rationale for why confidence level was assigned
+ALTER TABLE evidence_chain ADD COLUMN IF NOT EXISTS confidence_rationale TEXT;
+
+-- Add chain_valid flag for cryptographic chain verification
+ALTER TABLE evidence_chain ADD COLUMN IF NOT EXISTS chain_valid BOOLEAN DEFAULT TRUE;
+
+-- Add retention_policy for CSRD 7-year compliance
+ALTER TABLE evidence_chain ADD COLUMN IF NOT EXISTS retention_policy TEXT DEFAULT 'csrd_7yr';
+
+-- Add retained_until for CSRD retention deadline (created_at + 7 years)
+ALTER TABLE evidence_chain ADD COLUMN IF NOT EXISTS retained_until TIMESTAMP;
+
+-- Add unit for metric type context
+ALTER TABLE evidence_chain ADD COLUMN IF NOT EXISTS unit TEXT;
+
+-- Add metric_type for evidence classification
+ALTER TABLE evidence_chain ADD COLUMN IF NOT EXISTS metric_type TEXT;
+
+-- Add cryptographic_hash for SHA-256(data_point_id + value + methodology + timestamp)
+ALTER TABLE evidence_chain ADD COLUMN IF NOT EXISTS cryptographic_hash TEXT;
+
+-- Add included_in_report for DisclosureReport linkage
+ALTER TABLE evidence_chain ADD COLUMN IF NOT EXISTS included_in_report UUID;
+
+-- Add reported_at for when evidence was reported in a disclosure
+ALTER TABLE evidence_chain ADD COLUMN IF NOT EXISTS reported_at TIMESTAMP;
+
+-- Add reported_by for user who included in report
+ALTER TABLE evidence_chain ADD COLUMN IF NOT EXISTS reported_by UUID;

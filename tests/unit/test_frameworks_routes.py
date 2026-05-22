@@ -1,5 +1,4 @@
 """Tests for framework mapping API — CSRD, ISSB, GRI, TCFD mappings."""
-import pytest
 from fastapi.testclient import TestClient
 
 from src.api.main import app
@@ -51,10 +50,10 @@ class TestListAllMappings:
         resp = client.get("/api/frameworks/map", headers=_admin_headers())
         assert resp.status_code == 200
         keys = [m["key"] for m in resp.json()["mappings"]]
-        # These are known keys from the FRAMEWORK_OUTPUTS dict
-        assert "energy_kwh_2847320" in keys
+        # These are known cluster keys (DB-driven, not the old static key format)
+        assert "energy_kwh" in keys
         assert "diesel_consumed" in keys
-        assert "water_m3_18430" in keys
+        assert "water_m3" in keys
 
     def test_without_auth_returns_401(self):
         resp = client.get("/api/frameworks/map")
@@ -82,10 +81,11 @@ class TestSingleFrameworkMap:
         )
         assert resp.status_code == 200
         frameworks = resp.json()["frameworks"]
-        assert "csrd_esrs_e1" in frameworks
-        assert "issb_ifrs_s2" in frameworks
-        assert "gri_302_1" in frameworks
-        assert "tcfd_metrics" in frameworks
+        # New DB-driven format uses framework name as key (csrd_esrs, not csrd_esrs_e1)
+        assert "csrd_esrs" in frameworks
+        assert "issb_ifrs" in frameworks
+        assert "gri" in frameworks
+        assert "tcfd" in frameworks
 
     def test_framework_entry_has_required_fields(self):
         resp = client.get(
@@ -94,13 +94,13 @@ class TestSingleFrameworkMap:
         )
         assert resp.status_code == 200
         frameworks = resp.json()["frameworks"]
-        # Check one framework entry in detail
-        csrd = frameworks["csrd_esrs_e1"]
+        # Check one framework entry in detail (DB-driven: key is framework name, not framework+disclosure)
+        csrd = frameworks["csrd_esrs"]
         assert "field_id" in csrd
         assert "label" in csrd
         assert "value" in csrd
         assert "unit" in csrd
-        assert "methodology" in csrd
+        assert "description" in csrd  # DB maps to description, not methodology
         assert "confidence" in csrd
 
     def test_scope3_category1_mapping_returns_200(self):
@@ -135,9 +135,9 @@ class TestSingleFrameworkMap:
         )
         data = resp.json()
         if isinstance(data, list):
-            assert any("error" in item for item in data if isinstance(item, dict))
+            assert any("detail" in item for item in data if isinstance(item, dict))
         else:
-            assert "error" in data
+            assert "detail" in data
 
     def test_without_auth_returns_401(self):
         resp = client.get("/api/frameworks/map/energy_kwh")
@@ -187,9 +187,9 @@ class TestCompareFrameworks:
         )
         data = resp.json()
         if isinstance(data, list):
-            assert any("error" in item for item in data if isinstance(item, dict))
+            assert any("detail" in item for item in data if isinstance(item, dict))
         else:
-            assert "error" in data
+            assert "detail" in data
 
     def test_compare_without_auth_returns_401(self):
         resp = client.get("/api/frameworks/compare/energy_kwh")

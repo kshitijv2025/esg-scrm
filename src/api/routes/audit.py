@@ -1,10 +1,11 @@
 """Audit log API — action trail for compliance."""
+
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
 
 from src.api.middleware.auth import require_auth
-from src.api.middleware.rbac import require_role, VIEWER_ROLES, EDITOR_ROLES
-from src.db.database import get_connection, release_connection, _fetchall, _execute, insert_audit_log
+from src.api.middleware.rbac import require_role, EDITOR_ROLES
+from src.db.database import get_connection, release_connection, _fetchall, insert_audit_log
 
 router = APIRouter()
 

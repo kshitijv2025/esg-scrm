@@ -8,7 +8,8 @@ Usage:
     def protected_route(user: dict = Depends(require_auth)):
         tenant_id = user["org_id"]
 """
-from fastapi import Depends, HTTPException, Request
+
+from fastapi import HTTPException, Request
 from typing import Optional
 
 from src.auth.jwt import decode_token

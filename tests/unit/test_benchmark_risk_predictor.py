@@ -1,16 +1,13 @@
 """
 Unit tests for benchmark_risk_predictor module.
 """
-import argparse
-import io
-import sys
-from unittest.mock import patch
 
-import pytest
+from unittest.mock import patch
 
 
 class FakeConnection:
     """Minimal fake connection for testing without a real DB."""
+
     def cursor(self):
         return FakeCursor()
 
@@ -23,6 +20,7 @@ class FakeConnection:
 
 class FakeCursor:
     """Minimal fake cursor that returns empty results."""
+
     def execute(self, query, params=None):
         pass
 
@@ -46,7 +44,7 @@ class TestBenchmarkCompleteness:
         # Patch DB access and the predict function to avoid real DB calls
         with patch("src.ml.benchmark_risk_predictor.get_connection") as mock_conn:
             mock_conn.return_value = FakeConnection()
-            with patch("src.ml.benchmark_risk_predictor.release_connection"):
+            with patch("src.ml.benchmark_risk_predictor.release_connection"):  # noqa: SIM117
                 with patch("src.ml.benchmark_risk_predictor.predict_supplier_risk") as mock_pred:
                     mock_pred.return_value = {
                         "supplier_id": "sup_001",
@@ -83,7 +81,7 @@ class TestBenchmarkCompleteness:
         with patch("src.ml.benchmark_risk_predictor.get_connection") as mock_conn:
             mock_conn.return_value = FakeConnection()
 
-            with patch("src.ml.benchmark_risk_predictor.release_connection"):
+            with patch("src.ml.benchmark_risk_predictor.release_connection"):  # noqa: SIM117
                 with patch("src.ml.benchmark_risk_predictor.batch_predict") as mock_batch:
                     mock_batch.return_value = [{"supplier_id": f"sup_{i:03d}"} for i in range(10)]
                     result = benchmark_throughput(supplier_count=10, iterations=2)
@@ -101,7 +99,7 @@ class TestBenchmarkCompleteness:
         with patch("src.ml.benchmark_risk_predictor.get_connection") as mock_conn:
             mock_conn.return_value = FakeConnection()
 
-            with patch("src.ml.benchmark_risk_predictor.release_connection"):
+            with patch("src.ml.benchmark_risk_predictor.release_connection"):  # noqa: SIM117
                 with patch("src.ml.benchmark_risk_predictor.batch_predict") as mock_batch:
                     mock_batch.return_value = [{"supplier_id": f"sup_{i:03d}"} for i in range(50)]
                     result = benchmark_throughput(supplier_count=50, iterations=3)

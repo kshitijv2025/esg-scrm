@@ -5,6 +5,7 @@ Populates the alert_thresholds table with factory-default templates
 covering energy, emissions, water, diesel, Scope 3 coverage,
 supplier risk, and evidence-chain integrity for a garment factory.
 """
+
 from src.db.database import get_connection, release_connection, _execute, _fetchone
 
 
@@ -32,7 +33,6 @@ def seed_alert_thresholds():
         ("", "energy", "daily_spike_pct_of_30d_avg", ">", 120.0, "WARNING", 1),
         # Monthly energy consumption critically high
         ("", "energy", "monthly_consumption_kwh", ">", 4_500_000, "CRITICAL", 1),
-
         # ── Emissions ────────────────────────────────────────────────────
         # Scope 1+2 emissions exceed 1,200 tCO2e per month
         ("", "emissions", "scope1_plus_2_monthly_tco2e", ">", 1_200.0, "WARNING", 1),
@@ -42,7 +42,6 @@ def seed_alert_thresholds():
         ("", "emissions", "scope3_quarterly_tco2e", ">", 5_000.0, "WARNING", 1),
         # Scope 3 quarterly emissions at critical level
         ("", "emissions", "scope3_quarterly_tco2e", ">", 7_500.0, "CRITICAL", 1),
-
         # ── Water ────────────────────────────────────────────────────────
         # Monthly water consumption exceeds 20,000 m3
         ("", "water", "monthly_consumption_m3", ">", 20_000.0, "WARNING", 1),
@@ -52,19 +51,16 @@ def seed_alert_thresholds():
         ("", "water", "daily_consumption_m3", ">", 800.0, "WARNING", 1),
         # Daily water consumption at critical level
         ("", "water", "daily_consumption_m3", ">", 1_200.0, "CRITICAL", 1),
-
         # ── Diesel ───────────────────────────────────────────────────────
         # Any diesel consumption detected (flag for evidence chain review)
         ("", "diesel", "consumption_liters", ">", 0.0, "WARNING", 1),
         # Diesel consumption above baseline threshold
         ("", "diesel", "monthly_consumption_liters", ">", 500.0, "CRITICAL", 1),
-
         # ── Scope 3 Coverage ─────────────────────────────────────────────
         # Supplier questionnaire response rate drops below 70%
         ("", "scope3_coverage", "questionnaire_response_rate_pct", "<", 70.0, "WARNING", 1),
         # Response rate critically low
         ("", "scope3_coverage", "questionnaire_response_rate_pct", "<", 50.0, "CRITICAL", 1),
-
         # ── Supplier Risk ────────────────────────────────────────────────
         # Individual supplier risk score exceeds 8.0
         ("", "supplier_risk", "risk_score", ">", 8.0, "CRITICAL", 1),
@@ -72,7 +68,6 @@ def seed_alert_thresholds():
         ("", "supplier_risk", "active_flags_count", ">", 3.0, "WARNING", 1),
         # Supplier risk score elevated
         ("", "supplier_risk", "risk_score", ">", 6.0, "WARNING", 1),
-
         # ── Evidence Chain Integrity ─────────────────────────────────────
         # Broken hash chain detected (any break is critical; threshold = 0
         # means any non-zero count triggers the alert)

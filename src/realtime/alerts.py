@@ -1,8 +1,9 @@
 """
 WebSocket alerts endpoint — real-time push of new risk flags to connected dashboards.
 """
-import asyncio
+
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -11,6 +12,65 @@ try:
 except ImportError:
     WebSocket = None
     WebSocketDisconnect = None
+
+# ---------------------------------------------------------------------------
+# Alert recommendation and escalation helpers
+# ---------------------------------------------------------------------------
+
+_RECOMMENDATION_MAP = {
+    ("energy_kwh", "WARNING"): "Review energy consumption patterns for efficiency gains.",
+    ("energy_kwh", "CRITICAL"): "Suspend non-essential energy use pending investigation.",
+    ("emissions_tco2", "WARNING"): "Audit emissions data for accuracy and completeness.",
+    ("emissions_tco2", "CRITICAL"): "Develop a carbon reduction plan immediately.",
+    ("water_m3", "WARNING"): "Inspect water usage and repair leaks.",
+    ("water_m3", "CRITICAL"): "Implement water conservation measures.",
+    ("scope3_category1", "WARNING"): "Engage suppliers on sustainability practices.",
+    ("scope3_category1", "CRITICAL"): "Update supplier scorecard with updated criteria.",
+    ("diesel_consumed", "WARNING"): "Justify diesel generator usage and explore alternatives.",
+    (
+        "diesel_consumed",
+        "CRITICAL",
+    ): "Ensure diesel generator use is fully documented and justified.",
+    ("gender_pct", "WARNING"): "Review diversity hiring practices.",
+    ("gender_pct", "CRITICAL"): "Address equity gaps in workforce representation.",
+    ("safety_incidents", "WARNING"): "Conduct immediate safety audit.",
+    ("safety_incidents", "CRITICAL"): "Report to regulatory bodies as required.",
+    ("governance_score", "WARNING"): "Present findings to board for review.",
+    ("governance_score", "CRITICAL"): "Commission an independent governance audit.",
+}
+
+
+def _get_recommendation(cluster: str, severity: str) -> str:
+    """Return an action recommendation for a given cluster/severity combination."""
+    key = (cluster.lower(), severity.upper())
+    return _RECOMMENDATION_MAP.get(key, "Review and take appropriate action.")
+
+
+def _should_escalate(timestamp: str, severity: str) -> tuple[bool, str]:
+    """Determine if a flag should escalate based on age and severity."""
+    try:
+        from datetime import datetime as dt
+
+        try:
+            from datetime import UTC
+        except ImportError:
+            from datetime import timezone
+
+            UTC = timezone.utc
+        flag_time = dt.fromisoformat(timestamp)
+        if flag_time.tzinfo is None:
+            flag_time = flag_time.replace(tzinfo=UTC)
+        age_hours = (dt.now(UTC) - flag_time).total_seconds() / 3600
+        if severity.upper() == "CRITICAL":
+            return False, severity
+        if age_hours >= 72:
+            return True, "CRITICAL"
+        return False, severity
+    except Exception:
+        logging.getLogger("alerts").debug(
+            "alerts.escalate.parse_error", timestamp=timestamp, severity=severity
+        )
+        return False, severity
 
 
 class AlertBus:
@@ -44,6 +104,7 @@ class AlertBus:
             try:
                 await ws.send_text(payload)
             except Exception:
+                logging.getLogger("alerts").debug("alerts.broadcast.send_error", org_id=org_id)
                 disconnected.append(ws)
         for ws in disconnected:
             self.disconnect(ws)
@@ -62,7 +123,9 @@ async def push_new_flag(flag: dict[str, Any], org_id: Optional[str] = None) -> N
     await _alert_bus.broadcast(event, org_id=org_id)
 
 
-async def push_acknowledgement(flag_id: str, acknowledged_by: str, org_id: Optional[str] = None) -> None:
+async def push_acknowledgement(
+    flag_id: str, acknowledged_by: str, org_id: Optional[str] = None
+) -> None:
     """Call this whenever a flag is acknowledged."""
     event = {
         "type": "flag_acknowledged",
@@ -107,7 +170,9 @@ async def ws_alerts_endpoint(websocket: WebSocket) -> None:
                 if msg.get("type") == "ping":
                     await websocket.send_text(json.dumps({"type": "pong"}))
             except json.JSONDecodeError:
-                pass
+                logging.getLogger("alerts.websocket").debug(
+                    "websocket.ignored.non_json", data=data[:100]
+                )
     except WebSocketDisconnect:
         _alert_bus.disconnect(websocket)
 

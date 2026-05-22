@@ -4,12 +4,11 @@ Benchmarking module for supplier risk score calculation.
 Measures latency and throughput of predict_supplier_risk() and batch_predict()
 functions from src.ml.risk_predictor.
 """
+
 import argparse
 import logging
 import statistics
-import sys
 import time
-from pathlib import Path
 
 from src.db.database import get_connection, release_connection
 from src.ml.risk_predictor import batch_predict, predict_supplier_risk
@@ -36,7 +35,9 @@ def _seed_test_suppliers(count: int = 10) -> list[str]:
             pass
 
         if len(rows) >= count:
-            supplier_ids = [str(r["id"]) if hasattr(r, "__getitem__") else str(r[0]) for r in rows[:count]]
+            supplier_ids = [
+                str(r["id"]) if hasattr(r, "__getitem__") else str(r[0]) for r in rows[:count]
+            ]
             return supplier_ids
 
         # Create test suppliers
@@ -45,20 +46,23 @@ def _seed_test_suppliers(count: int = 10) -> list[str]:
             supplier_id = f"bench_supplier_{i:04d}"
             try:
                 cur = conn.cursor()
-                cur.execute("""
+                cur.execute(
+                    """
                     INSERT OR IGNORE INTO suppliers
                     (id, name, org_id, risk_tier, certifications, questionnaire_status, country, annual_spend_usd)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    supplier_id,
-                    f"Benchmark Supplier {i}",
-                    "bench_org",
-                    "B" if i % 3 == 0 else "A",
-                    "ISO14001" if i % 2 == 0 else "",
-                    "pending",
-                    "CN" if i % 2 == 0 else "US",
-                    100000 + i * 1000,
-                ))
+                """,
+                    (
+                        supplier_id,
+                        f"Benchmark Supplier {i}",
+                        "bench_org",
+                        "B" if i % 3 == 0 else "A",
+                        "ISO14001" if i % 2 == 0 else "",
+                        "pending",
+                        "CN" if i % 2 == 0 else "US",
+                        100000 + i * 1000,
+                    ),
+                )
                 cur.close()
                 supplier_ids.append(supplier_id)
             except Exception as e:
@@ -185,7 +189,9 @@ def benchmark_throughput(
             timings.append(elapsed)
             logger.debug(
                 "batch_predict iteration=%d suppliers=%d elapsed_s=%.3f",
-                i + 1, len(results), elapsed,
+                i + 1,
+                len(results),
+                elapsed,
             )
         except Exception as e:
             errors += 1

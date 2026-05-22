@@ -83,4 +83,43 @@ export async function apiFetch(path, options = {}) {
   return response;
 }
 
+export async function apiExport(path, filename) {
+  const token = getToken();
+  const headers = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const url = path.startsWith("/api") ? path : `/api${path}`;
+  const response = await fetch(url, { headers });
+
+  if (response.status === 401) {
+    const refreshed = await refreshOnce();
+    if (refreshed) {
+      headers["Authorization"] = `Bearer ${getToken()}`;
+    } else {
+      clearToken();
+      window.dispatchEvent(new CustomEvent("auth:logout"));
+      throw new AuthError("Session expired. Please log in again.");
+    }
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new ApiError(
+      response.status,
+      text || `Export failed (${response.status})`,
+    );
+  }
+
+  const blob = await response.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(blobUrl);
+}
+
 export { getToken, setToken, clearToken };
