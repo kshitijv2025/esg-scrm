@@ -1,0 +1,113 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "esg-scrm"
+version = "0.2.0"
+description = "ESG Supply Chain Risk Management Platform"
+authors = [
+    {name = "ESG SCRM Team"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    # Web framework
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "pydantic>=2.0.0",
+    "pydantic[email]>=2.0.0",
+    # HTTP client (SAP B1 connector, WhatsApp API)
+    "httpx>=0.25.0",
+    "requests>=2.31.0",
+    # MQTT (smart meter ingestion)
+    "paho-mqtt>=1.6.0",
+    # PostgreSQL driver (production database)
+    "psycopg2-binary>=2.9.0",
+    # Security
+    "bcrypt>=4.0.0",
+    "cryptography>=42.0.0",
+    # Error monitoring
+    "sentry-sdk>=2.0.0",
+    # Utilities
+    "python-dotenv>=1.0.0",
+    "fpdf2>=2.7.0",
+    "openpyxl>=3.1.0",
+    # Billing
+    "stripe>=7.0.0",
+]
+
+[project.optional-dependencies]
+ml = [
+    # PyTorch - On Windows, install separately: pip install torch --index-url https://download.pytorch.org/whl/cu118
+    "torch>=2.7.1",
+]
+align = [
+    "kailash-align>=0.7.1",
+]
+all = [
+    "kailash-align[all]>=0.7.1",
+]
+dev = [
+    # Testing (pytest>=7.2.0 removes vulnerable py dependency)
+    "pytest>=7.2.0",
+    "pytest-cov>=4.0",
+    "pytest-asyncio>=0.21.0",
+    # Linting & Formatting
+    "black>=23.0",
+    "isort>=5.12.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+    # Security & Pre-commit
+    "detect-secrets>=1.5.0",
+    "pre-commit>=4.2.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/kshitijv2025/esg-scrm"
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["tests*", ".*", "__pycache__*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+markers = [
+    "regression: regression tests for implemented endpoints",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311", "py312", "py313"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true

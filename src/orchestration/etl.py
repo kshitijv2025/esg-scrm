@@ -1,0 +1,146 @@
+"""
+ETL Pipeline — orchestrates: data sources -> SQLite -> risk detection -> alerts.
+Runs every 60 seconds as a background loop.
+MQTT consumer runs continuously alongside the ETL cycle.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import sqlite3
+import logging
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from src.connectors.mqtt_client import SmartMeterConsumer
+from src.connectors.sap_b1_adapter import SAPBusinessOneAdapter
+from src.db.database import DB_PATH
+from src.evidence.hash_chain import compute_hash
+
+logger = logging.getLogger(__name__)
+
+_mqtt_consumer: Optional[SmartMeterConsumer] = None
+
+
+def start_mqtt_consumer(factory_id: Optional[str] = None) -> SmartMeterConsumer:
+    """Create and start the MQTT consumer. Call once at app startup."""
+    global _mqtt_consumer
+    _mqtt_consumer = SmartMeterConsumer(factory_id=factory_id)
+    _mqtt_consumer.start()
+    return _mqtt_consumer
+
+
+def stop_mqtt_consumer() -> None:
+    """Stop the MQTT consumer. Call at app shutdown."""
+    global _mqtt_consumer
+    if _mqtt_consumer is not None:
+        _mqtt_consumer.stop()
+        _mqtt_consumer = None
+
+
+async def run_sap_ingestion(factory_id: str = "factory_bd_001") -> None:
+    """Pull data from SAP B1 adapter and write to metrics table.
+
+    Skips records already present (dedup by cluster + recorded_at) so the
+    ETL loop does not grow the metrics table with identical rows on every cycle.
+    """
+    # Look up org_id for this factory (needed for SAPBusinessOneAdapter)
+    from uuid import UUID
+
+    conn_lookup = sqlite3.connect(DB_PATH)
+    try:
+        row = conn_lookup.execute(
+            "SELECT org_id FROM factories WHERE id = ?", (factory_id,)
+        ).fetchone()
+        org_id = UUID(row["org_id"]) if row else UUID("00000000-0000-0000-0000-000000000001")
+    finally:
+        conn_lookup.close()
+
+    adapter = SAPBusinessOneAdapter(organization_id=org_id)
+    records = adapter.get_utility_invoices(2025, 1)
+    if not records:
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+
+    try:
+        inserted = 0
+        for record in records:
+            internal = adapter.to_internal_metric(record)
+
+            existing = conn.execute(
+                "SELECT id FROM metrics WHERE cluster = ? AND recorded_at = ? AND factory_id = ?",
+                (internal["cluster"], internal["recorded_at"], factory_id),
+            ).fetchone()
+            if existing:
+                continue
+
+            prev_row = conn.execute(
+                "SELECT hash FROM evidence_chain WHERE cluster=? ORDER BY id DESC LIMIT 1",
+                (internal["cluster"],),
+            ).fetchone()
+            prev_hash = prev_row[0] if prev_row else None
+            the_hash = compute_hash(
+                internal["cluster"],
+                internal["value"],
+                internal["recorded_at"],
+                prev_hash or "",
+            )
+
+            cursor = conn.execute(
+                """INSERT INTO metrics (factory_id, cluster, value, unit, confidence, source, period, recorded_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    factory_id,
+                    internal["cluster"],
+                    internal["value"],
+                    internal["unit"],
+                    internal["confidence"],
+                    internal["source"],
+                    internal.get("period", ""),
+                    internal["recorded_at"],
+                ),
+            )
+            metric_id = cursor.lastrowid
+            conn.execute(
+                """INSERT INTO evidence_chain (metric_id, cluster, hash, prev_hash, value, computed_at, source_system)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    metric_id,
+                    internal["cluster"],
+                    the_hash,
+                    prev_hash,
+                    internal["value"],
+                    datetime.now(timezone.utc).isoformat(),
+                    "sap_b1",
+                ),
+            )
+            inserted += 1
+
+        if inserted > 0:
+            conn.commit()
+            logger.info("etl.sap_ingested records=%d factory=%s", inserted, factory_id)
+    finally:
+        conn.close()
+
+
+async def etl_loop(interval: int = 60, factory_id: str = "factory_bd_001") -> None:
+    """Main ETL loop — runs every `interval` seconds."""
+    from src.realtime.risk_detector import detect_and_alert
+
+    while True:
+        try:
+            await run_sap_ingestion(factory_id)
+            await detect_and_alert(factory_id)
+        except Exception as e:
+            logger.error("etl.cycle_error error=%s", e)
+        await asyncio.sleep(interval)
+
+
+def load_latest_metrics(factory_id: str = "factory_bd_001") -> list[dict[str, Any]]:
+    """Return the latest metric record per cluster from SQLite."""
+    from src.db.database import fetch_metrics
+
+    return fetch_metrics(factory_id)
